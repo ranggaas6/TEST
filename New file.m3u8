@@ -1,0 +1,29 @@
+#KODIPROP:inputstreamaddon=inputstream.adaptive
+#EXTHTTP:{"dt-custom-data":"eyJ1c2VySWQiOiJyZWFjdC1qdy1wbGF5ZXIiLCJzZXNzaW9uSWQiOiIxMjM0NTY3ODkiLCJtZXJjaGFudCI6ImdpaXRkX3RyYW5zdmlzaW9uIn0="}
+#KODIPROP:inputstream.adaptive.manifest_type=dash
+#KODIPROP:inputstream.adaptive.license_type=com.widevine.alpha
+#KODIPROP:inputstream.adaptive.license_key=https://lic.drmtoday.com/license-proxy-widevine/cenc/?specConform=true
+#EXTINF:0 tvg-id="" tvg-name="" tvg-logo="https://upload.wikimedia.org/wikipedia/commons/thumb/3/39/INDOSIAR_Logo.png/1280px-INDOSIAR_Logo.png" group-title="Nasional",Indosiar 
+https://etslive-2-vidio-com.akamaized.net/exp=1698074871~acl=/hls-p/ingest_204_*/*~hmac=68bcf3b75b5854b53c5227b2360d22799f439fef603656a0cd3cc396c23330f5/hls-p/ingest_204_480p/index.m3u8
+
+#KODIPROP:inputstreamaddon=inputstream.adaptive
+#EXTHTTP:{"dt-custom-data":"eyJ1c2VySWQiOiJyZWFjdC1qdy1wbGF5ZXIiLCJzZXNzaW9uSWQiOiIxMjM0NTY3ODkiLCJtZXJjaGFudCI6ImdpaXRkX3RyYW5zdmlzaW9uIn0="}
+#KODIPROP:inputstream.adaptive.manifest_type=dash
+#KODIPROP:inputstream.adaptive.license_type=com.widevine.alpha
+#KODIPROP:inputstream.adaptive.license_key=https://lic.drmtoday.com/license-proxy-widevine/cenc/?specConform=true
+#EXTINF:0 tvg-id="" tvg-name="" tvg-logo="https://id.m.wikipedia.org/wiki/Berkas:KOMPAS_TV_(2017).svg" group-title="Nasional",KOMPAS TV
+https://manifest.googlevideo.com/api/manifest/hls_variant/expire/1698077717/ei/tUc2ZZq5IY-jgQe955M4/ip/92.205.15.128/id/1BTsX2WBg8Q.1/source/yt_live_broadcast/requiressl/yes/tx/24561250/txs/24561249%2C24561250%2C24561251/hfr/1/playlist_duration/30/manifest_duration/30/maudio/1/spc/UWF9fzZRp15NU3gSKQwSVPmIDaSarDXE5Iss5EyZvA/vprv/1/go/1/pacing/0/nvgoi/1/keepalive/yes/fexp/24007246/beids/24350018/dover/11/itag/0/playlist_type/DVR/sparams/expire%2Cei%2Cip%2Cid%2Csource%2Crequiressl%2Ctx%2Ctxs%2Chfr%2Cplaylist_duration%2Cmanifest_duration%2Cmaudio%2Cspc%2Cvprv%2Cgo%2Citag%2Cplaylist_type/sig/AGM4YrMwRQIhAIEWEwU_Uo1BwotK3AKOjtgThcuum89SQZ5IJK7-9rdeAiBV5HT3z5Mi_HZJ9EwRDGFT-DOA60NcEv4f7p9B--YeGw%3D%3D/file/index.m3u8
+
+
+#KODIPROP:inputstreamaddon=inputstream.adaptive
+#EXTHTTP:{"dt-custom-data":"eyJ1c2VySWQiOiJyZWFjdC1qdy1wbGF5ZXIiLCJzZXNzaW9uSWQiOiIxMjM0NTY3ODkiLCJtZXJjaGFudCI6ImdpaXRkX3RyYW5zdmlzaW9uIn0="}
+#KODIPROP:inputstream.adaptive.manifest_type=dash
+#KODIPROP:inputstream.adaptive.license_type=com.widevine.alpha
+#KODIPROP:inputstream.adaptive.license_key=https://lic.drmtoday.com/license-proxy-widevine/cenc/?specConform=true
+#EXTINF:0 tvg-id="" tvg-name="" tvg-logo="https://i.imgur.com/SEr4xvB.png" group-title="Nasional",NET TV
+https://manifest.googlevideo.com/api/manifest/hls_variant/expire/1698076668/ei/nEM2Ze_nE9HC6dsPk7iT6AY/ip/92.205.15.128/id/aJkIZDfn53Q.1/source/yt_live_broadcast/requiressl/yes/hfr/1/maudio/1/spc/UWF9f7FMFaIzjiUPVK1QLr28OMYToLXDUCfb7f9cAA/vprv/1/go/1/pacing/0/nvgoi/1/keepalive/yes/fexp/24007246/beids/24350018/dover/11/itag/0/playlist_type/LIVE/sparams/expire%2Cei%2Cip%2Cid%2Csource%2Crequiressl%2Chfr%2Cmaudio%2Cspc%2Cvprv%2Cgo%2Citag%2Cplaylist_type/sig/AGM4YrMwRQIhAOBzgGldKWrozwGhoCTkwtw7Usm-4qxN4KD38kKwM6yCAiBbcmB1R8-oDFpGOG8FPznzwCyD0CyhC_ofE5dO80nxnw%3D%3D/file/index.m3u8
+
+
+#EXTINF:-1 tvg-id="" tvg-name="SCTV" tvg-logo="https://thumbor.prod.vidiocdn.com/Y9ldcMmT27NGBj89JaT-xJuQei8=/64x64/filters:quality(70)/vidio-web-prod-livestreaming/uploads/livestreaming/square_image/204/4e9f5c.png" group-title="NASIONAL",SCTV
+#EXTVLCOPT:program=epgurl={live/204-sctv?utm_medium=epg_tv_schedule_channel_list}
+https://www.vidio.com/live/204-sctv-tv-stream/embed?autoplay=true&player_only=true&live_chat=false&mute=false&
