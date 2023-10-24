@@ -233,10 +233,10 @@ https://live.cnbcindonesia.com/livecnbc/smil:cnbctv.smil/playlist.m3u8|Referer=h
 https://b1news.beritasatumedia.com/Beritasatu/B1News_manifest.m3u8|Referer=https://beritasatu.tv/
 
 
-#KODIPROP:inputstream.adaptive.license_type=com.widevine.alpha
 #EXTINF:-1 group-title="LOKAL" tvg-logo="https://www.transtv.co.id/livetv/anytv/ANTV_live_streaming_tv.jpg",ANTV
 #EXTVLCOPT:http-user-agent=Mozilla/5.0 (Linux; Android 9; CPH2083 Build/PPR1.180610.011) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/79.0.3945.116 Mobile Safari/537.36
 https://video-weaver.sin01.hls.ttvnw.net/v1/playlist/Cr0F6jlqmqLV_msvkw0H68KM5IMERisYz9jAb5Azsr1w4tpEcU1RXhMyHKUIuLQbEAfzFlDX90sbkrLOosxkKIvhDjxJccE2hw5htOojFay3DePtZ0XrzO_ffas5aSZfNSqLi9e1i807abrOtb9_V66l-hhGO13fLmuBgXOWfLKqNP7hv_aGJnlfE8ljBn1yBA76zwhj4b008dkv-vR5t4ix45zyjdeyeOiXqT0so9PSf2qU4DdJ7OUfztQo4PPn6kSrTOTEKfr-ibhx0HujbljClDjYVYTvkEj69mRpYkXlQaDaw9zYapcM5bo3Kt1qVqclbiBWyqMiedh1Abv6_QZHZPlrPVSagcpvgHz6BaSzjkPh5bsvrZp2wppZsf2yF74FS2lLca1ZZgDCdKfND_Dit7w34d0ontmxMns4T8YPCirMJ9rhp5sW2h13TfwFvG23txD2EAys2VlXbenSCOGnvgmExxMGJDgyOrSBu9cGSIsp0JJYzDr4_gT18hMbogTXj8DA11xCAzkhUPCtbOwY2ZXhmNnRvakTseHbYrv3x0OxBerq5mo0h3FjS9ZlzUhXOm9pj61YBOX6avlbMGOZuxCCt2_36OIqaMMuSP3rf2610pGsZ_wX2do-z-Ss0iuM5efo2DMI7Ly8HJXRHngMw3HoonFlxf_aUxPpeluRzb9m_KE6N58e1bdn5u05CHKg9O66J0L10vO1eStwgjyXuAofG9eIQ1TXIegN-4C44K26V9d2ChnsNBvxVXONSftee-BvM0yNtxlvIHf9dwl5prfdeVI_u3WusOj8s-fMMNrAeNYKdGllZdgtlV8lRVAGuz8yW9qGjHd-gDkqpnUuVBdYghMz70r5D5LeSXZ-ELvOKh99BDFm5FP3uYsuUscTnzl97QEUyt8INj0OEDbtHCKKU6ZoxH29FRHags8aDFYH9ZOvb6aPw7QgAyABKgl1cy13ZXN0LTIw6gc.m3u8|Referer=https://www.antvklik.com/
+
 
 #EXTINF:-1 group-title="LOKAL" tvg-logo="https://www.transtv.co.id/livetv/anytv/tvri.png",TVRI
 #EXTVLCOPT:http-user-agent=Mozilla/5.0 (Linux; Android 9; CPH2083 Build/PPR1.180610.011) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/79.0.3945.116 Mobile Safari/537.36
