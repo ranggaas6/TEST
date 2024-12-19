@@ -15,7 +15,7 @@ Shared By	:      	https://imamuddinwp.com/
 -----------------------------------------------*/
 
 /*-- Customize Options (Start) --
-<Variable name="keycolor" description="Main Color" type="color" default="#fd3a13" value="#fd3a13"/>
+<Variable name="keycolor" description="Main Color" type="color" default="#ff0000" value="#ff0000"/>
 <Group description="Theme Options">
     <Variable name="darkmode" description="Native Dark Mode" type="length" default="0px" min="0px" max="1px" value="0px"/>
     <Variable name="userdarkmode" description="User Dark Mode" type="length" default="1px" min="0px" max="1px" value="1px"/>
@@ -37,54 +37,54 @@ Shared By	:      	https://imamuddinwp.com/
 <Group description="Colors">
 	<Variable name="background.color" description="Body Background" type="color" default="#f5f6f7"  value="#f5f6f7"/>
     <Variable name="outer.bg" description="Outer Background" type="color" default="#f5f6f7"  value="#f5f6f7"/>
-    <Variable name="main.color" description="Main Color" type="color" default="#fd3a13" value="#fd3a13"/>
+    <Variable name="main.color" description="Main Color" type="color" default="#ff0000" value="#ff0000"/>
     <Variable name="title.color" description="Title Color" type="color" default="#16161a" value="#16161a"/>
-    <Variable name="title.hover.color" description="Title Hover Color" type="color" default="$(main.color)" value="#fd3a13"/>
+    <Variable name="title.hover.color" description="Title Hover Color" type="color" default="$(main.color)" value="#ff0000"/>
     <Variable name="meta.color" description="Meta Color" type="color" default="#97979d" value="#97979d"/>
     <Variable name="text.color" description="Text Color" type="color" default="#626262"  value="#626262"/>
 </Group>
 <Group description="Top Bar" selector="nav.topbar-wrap">
     <Variable name="topbar.bg" description="Background" type="color" default="#16161a" value="#16161a"/>
     <Variable name="topbar.color" description="Color" type="color" default="#ffffff" value="#ffffff"/>
-    <Variable name="topbar.hover.color" description="Hover Color" type="color" default="$(main.color)" value="#fd3a13"/>
+    <Variable name="topbar.hover.color" description="Hover Color" type="color" default="$(main.color)" value="#ff0000"/>
     <Variable name="topbar.border" description="Show Border" type="length" default="0px" min="0px" max="1px" value="0px"/>
 </Group>
 <Group description="Header" selector="#header-wrapper">
     <Variable name="header.height" description="Height" type="length" default="62px" min="50px" max="70px" value="62px"/>
     <Variable name="header.bg" description="Background" type="color" default="#ffffff" value="#ffffff"/>
     <Variable name="header.color" description="Color" type="color" default="#16161a" value="#16161a"/>
-    <Variable name="header.hover.color" description="Hover Color" type="color" default="$(main.color)" value="#fd3a13"/>
+    <Variable name="header.hover.color" description="Hover Color" type="color" default="$(main.color)" value="#ff0000"/>
 </Group>
 <Group description="Sub Menu" selector="#header-wrapper">
     <Variable name="submenu.bg" description="Background" type="color" default="#ffffff" value="#ffffff"/>
     <Variable name="submenu.color" description="Color" type="color" default="$(title.color)" value="#16161a"/>
-    <Variable name="submenu.hover.color" description="Hover Color" type="color" default="$(main.color)" value="#fd3a13"/>
+    <Variable name="submenu.hover.color" description="Hover Color" type="color" default="$(main.color)" value="#ff0000"/>
 </Group>
 <Group description="Mega Menu" selector="#header-wrapper">
     <Variable name="mega.bg" description="Background" type="color" default="$(submenu.bg)" value="#ffffff"/>
     <Variable name="mega.color" description="Color" type="color" default="$(submenu.color)" value="#16161a"/>
-    <Variable name="mega.hover.color" description="Hover Color" type="color" default="$(main.color)" value="#fd3a13"/>
+    <Variable name="mega.hover.color" description="Hover Color" type="color" default="$(main.color)" value="#ff0000"/>
     <Variable name="mega.meta.color" description="Meta Color" type="color" default="$(meta.color)" value="#97979d"/>
 </Group>
 <Group description="Mobile Menu">
     <Variable name="mobilemenu.bg" description="Background" type="color" default="#ffffff" value="#ffffff"/>
     <Variable name="mobilemenu.color" description="Color" type="color" default="$(title.color)" value="#16161a"/>
-    <Variable name="mobilemenu.hover.color" description="Hover Color" type="color" default="$(main.color)" value="#fd3a13"/>
+    <Variable name="mobilemenu.hover.color" description="Hover Color" type="color" default="$(main.color)" value="#ff0000"/>
 </Group>
 <Group description="Ticker News" selector="#ticker .widget">
-    <Variable name="ticker.title.color" description="Title Color" type="color" default="$(main.color)" value="#fd3a13"/>
+    <Variable name="ticker.title.color" description="Title Color" type="color" default="$(main.color)" value="#ff0000"/>
     <Variable name="ticker.color" description="Color" type="color" default="$(title.color)" value="#16161a"/>
-    <Variable name="ticker.hover.color" description="Hover Color" type="color" default="$(title.hover.color)" value="#fd3a13"/>
+    <Variable name="ticker.hover.color" description="Hover Color" type="color" default="$(title.hover.color)" value="#ff0000"/>
 </Group>
 <Group description="Widgets" select="#sidebar">
     <Variable name="widget.bg" description="Background" type="color" default="#ffffff" value="#ffffff"/>
     <Variable name="widget.title.color" description="Title Color" type="color" default="$(title.color)" value="#16161a"/>
-    <Variable name="widget.dash.color" description="Dash Color" type="color" default="$(main.color)" value="#fd3a13"/>
+    <Variable name="widget.dash.color" description="Dash Color" type="color" default="$(main.color)" value="#ff0000"/>
 </Group>
 <Group description="Video Widget (Style 1)" select="div.video-style">
     <Variable name="video.widget.bg" description="Background" type="color" default="#16161a" value="#16161a"/>
     <Variable name="video.widget.color" description="Color" type="color" default="#ffffff" value="#ffffff"/>
-    <Variable name="video.widget.hover.color" description="Hover Color" type="color" default="$(main.color)" value="#fd3a13"/>
+    <Variable name="video.widget.hover.color" description="Hover Color" type="color" default="$(main.color)" value="#ff0000"/>
     <Variable name="video.widget.meta.color" description="Meta Color" type="color" default="#AAAAAA" value="#AAAAAA"/>
 </Group>
 <Group description="Main Posts" select="#main">
@@ -95,7 +95,7 @@ Shared By	:      	https://imamuddinwp.com/
 <Group description="Post Tag" select="#main">
     <Variable name="cardtag" description="Card Tag" type="length" default="1px" min="0px" max="1px" value="1px"/>
     <Variable name="thumbtag" description="Thumbnail Tag" type="length" default="1px" min="0px" max="1px" value="1px"/>
-    <Variable name="tag.bg" description="Background" type="color" default="$(main.color)" value="#fd3a13"/>
+    <Variable name="tag.bg" description="Background" type="color" default="$(main.color)" value="#ff0000"/>
     <Variable name="tag.color" description="Color" type="color" default="#ffffff"  value="#ffffff"/>
 </Group>
 <Group description="Post Page" select="#main">
@@ -110,14 +110,14 @@ Shared By	:      	https://imamuddinwp.com/
 <Group description="Footer" selector="#footer-wrapper">
     <Variable name="footer.bg" description="Background" type="color" default="#16161a" value="#16161a"/>
     <Variable name="footer.color" description="Color" type="color" default="#ffffff" value="#ffffff"/>
-    <Variable name="footer.hover.color" description="Hover Color" type="color" default="$(main.color)" value="#fd3a13"/>
+    <Variable name="footer.hover.color" description="Hover Color" type="color" default="$(main.color)" value="#ff0000"/>
     <Variable name="footer.meta.color" description="Meta Color" type="color" default="#AAAAAA" value="#AAAAAA"/>
     <Variable name="footer.text.color" description="Text Color" type="color" default="#AAAAAA" value="#AAAAAA"/>
 </Group>
 <Group description="Footer Bar" selector="div.footer-bar">
     <Variable name="footerbar.bg" description="Background" type="color" default="#09090a" value="#09090a"/>
     <Variable name="footerbar.color" description="Color" type="color" default="#ffffff" value="#ffffff"/>
-    <Variable name="footerbar.hover.color" description="Hover Color" type="color" default="$(main.color)" value="#fd3a13"/>
+    <Variable name="footerbar.hover.color" description="Hover Color" type="color" default="$(main.color)" value="#ff0000"/>
     <Variable name="footerbar.border" description="Show Border" type="length" default="0px" min="0px" max="1px" value="0px"/>
 </Group>
 <Group description="Cookie Consent" selector="#magspot-cookie-consent">
@@ -125,7 +125,7 @@ Shared By	:      	https://imamuddinwp.com/
     <Variable name="cookie.color" description="Text Color" type="color" default="$(text.color)" value="#626262"/>
 </Group>
 <Group description="Buttons">
-    <Variable name="button.bg" description="Background" type="color" default="$(main.color)" value="#fd3a13"/>
+    <Variable name="button.bg" description="Background" type="color" default="$(main.color)" value="#ff0000"/>
     <Variable name="button.color" description="Color" type="color" default="#ffffff" value="#ffffff"/>
     <Variable name="button.hover.bg" description="Hover Background" type="color" default="#e33411" value="#e33411"/>
     <Variable name="button.hover.color" description="Hover Color" type="color" default="#ffffff" value="#ffffff"/>
@@ -153,7 +153,7 @@ Shared By	:      	https://imamuddinwp.com/
 <Variable name="body.background.color" description="Comments Background" hideEditor="true" type="color" default="transparent"  value="transparent"/>
 <Variable name="body.title.color" description="Comments Color" hideEditor="true" type="color" default="$(title.color)" value="#16161a"/>
 <Variable name="body.text.color" description="Comments Text Color" hideEditor="true" type="color" default="$(text.color)"  value="#626262"/>
-<Variable name="body.link.color" description="Comments Link Color" hideEditor="true" type="color" default="$(main.color)"  value="#fd3a13"/>
+<Variable name="body.link.color" description="Comments Link Color" hideEditor="true" type="color" default="$(main.color)"  value="#ff0000"/>
 <Variable name="body.text.font" description="Comments Font 1" hideEditor="true" type="font" default="normal 400 14px roboto, Arial, sans-serif !important"  value="normal 400 14px roboto, Arial, sans-serif !important"/>
 <Variable name="body.action.font.large" description="Comments Font 2" hideEditor="true" type="font" default="normal 700 14px roboto, Arial, sans-serif !important"  value="normal 700 14px roboto, Arial, sans-serif !important"/>
 -- Customize Options (End) --*/
