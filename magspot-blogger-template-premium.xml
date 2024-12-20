@@ -2634,6 +2634,41 @@ body#layout #hidden-widgets{display:none!important}
           </b:section>
         </div>
       </nav>
+    </b:if>
+    <div class='main-header'>
+      <div class='header-inner'>
+        <div class='header-header flex-c'>
+          <div class='container row-x1'>
+            <div class='header-items'>
+              <div class='flex-left'>
+                <b:tag class='mobile-menu-toggle' href='#' name='a' role='button' title='Menu'/>
+                <b:if cond='data:view.isLayoutMode or (data:widgets.Image any w =&gt; w.sectionId == &quot;main-logo&quot;)'>
+                  <b:section class='main-logo' id='main-logo' maxwidgets='1' name='Header Logo' showaddelement='no'>
+                    <b:widget id='Image50' locked='true' title='' type='Image' visible='true'>
+                      <b:widget-settings>
+                        <b:widget-setting name='displayUrl'>https://1.bp.blogspot.com/-qk-KYK0bNHs/YTtnqLmlGcI/AAAAAAAAAfM/QHXtzMxhl7kLAGjfMOM8E73Th_TZsnOJgCLcBGAsYHQ/s320/logo.png</b:widget-setting>
+                        <b:widget-setting name='displayHeight'>80</b:widget-setting>
+                        <b:widget-setting name='sectionWidth'>160</b:widget-setting>
+                        <b:widget-setting name='shrinkToFit'>false</b:widget-setting>
+                        <b:widget-setting name='displayWidth'>320</b:widget-setting>
+                        <b:widget-setting name='link'>https://1.bp.blogspot.com/-EG9_OzrmI9Q/YTtnl8J2U0I/AAAAAAAAAfI/Vta2ee6-b4UAX7DocjFIJCFe8QVL-dxvQCLcBGAsYHQ/dark-logo.png</b:widget-setting>
+                        <b:widget-setting name='caption'/>
+                      </b:widget-settings>
+                      <b:includable id='main' var='this'>
+      <b:include name='widget-title'/>
+      <b:include name='content'/>
+    </b:includable>
+                      <b:includable id='content'>
+      <b:include name='image-content'/>
+    </b:includable>
+                    </b:widget>
+                  </b:section>
+                <b:else/>
+                  <div class='main-logo'>
+                    <b:tag class='title' expr:name='data:view.isMultipleItems ? &quot;h1&quot; : &quot;span&quot;'>
+                      <a class='homepage' expr:href='data:blog.homepageUrl.canonical' rel='home'><data:blog.title/></a>
+                    </b:tag>
+                  </div>
                 </b:if>
                 <b:section class='magspot-main-menu' id='magspot-main-menu' maxwidgets='1' name='Header Menu' showaddelement='no'>
                   <b:widget id='LinkList200' locked='true' title='' type='LinkList' visible='true'>
