@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KissKH Plugin
 // @namespace    https://kisskh.co/
-// @version      2.0.1
+// @version      2.0.0
 // @description  Plugin KissKH untuk Drama Explorer — search, badge, episode player, stream langsung, subtitle decrypt
 // @author       UserScript
 // ==/UserScript==
