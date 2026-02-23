@@ -15,46 +15,16 @@
 // ==/UserScript==
 
 // ============================================================
-// CARA KERJA (3 Opsi, berjalan otomatis sebagai fallback chain):
-//
-// Opsi B (OTOMATIS): Core fetch plugin dari GitHub raw URL saat
-//   pengguna klik "Tonton (Cinestream)". Isi CINE_PLUGIN_URL
-//   di skrip Core dengan URL raw file ini dari GitHub Anda.
-//
-// Opsi C (MANUAL SEKALI): Buka menu Tampermonkey di kisskh.co,
-//   klik "Install Cinestream Plugin (Opsi C)", paste seluruh
-//   isi file ini. Plugin tersimpan permanen di GM_getValue.
-//
-// Opsi A (FALLBACK): Jika B & C gagal, tombol "Buka di Cinestream"
-//   tetap berfungsi membuka multiembed di tab baru.
-//
-// File ini juga bisa diinstall sebagai skrip Tampermonkey
-// biasa di kisskh.co/kisskh.la/hitv.vip untuk menyimpan
-// kodenya via GM_setValue agar Opsi C berjalan otomatis.
+// CARA INSTALL:
+// Metode B: Isi CINE_PLUGIN_URL di Core dengan URL raw file ini dari GitHub
+//           (pastikan nama file BUKAN .user.js agar tidak diintercept Tampermonkey)
+// Metode C: Buka Plugin Manager di Explorer -> tab "Paste Kode" -> paste isi file ini
 // ============================================================
 
 (function() {
 'use strict';
 
-// Auto-simpan ke GM_getValue saat skrip ini berjalan di launcher page
-// Sehingga Opsi C otomatis tersedia tanpa perlu paste manual
-try {
-  var _selfCode = arguments.callee.toString();
-} catch(e) {}
-// Simpan via postMessage ke launcher
-(function() {
-  var _selfSrc = document.currentScript && document.currentScript.textContent;
-  if (!_selfSrc && typeof GM_setValue === 'function') {
-    // Dijalankan sebagai Tampermonkey script — simpan diri sendiri
-    fetch(GM_info && GM_info.script && GM_info.script.downloadURL || '')
-      .then(function(r){ return r.text(); })
-      .then(function(code){ if (code.length > 100) GM_setValue('cine_plugin_code', code); })
-      .catch(function(){});
-  }
-})();
-
-// ── Proxy fetch via postMessage ke Launcher ──────────────────────────────
-// Plugin mandiri: punya launcherFetch sendiri dengan namespace _cine_
+// ── Proxy fetch via postMessage ke Launcher ───────────────────────────
 var _cineReqMap = {};
 var _cineReqId  = 0;
 window.addEventListener('message', function(e) {
@@ -85,37 +55,25 @@ function launcherFetch(url, params, headers, method, body, bodyType) {
   });
 }
 
-// ── Helpers DOM ──────────────────────────────────────────────────────────
+// ── Helper DOM & API key ───────────────────────────────────
 function updateCineBadge(id, available) {
   var b = document.getElementById('cineb-' + id);
   if (!b) return;
+  b.style.display = '';
   if (available) { b.textContent = '\u2713 Cine'; b.className = 'cine-badge found'; }
   else { b.textContent = '\u2717 Cine'; b.className = 'cine-badge missing'; }
 }
 
-function getApiKey() {
-  return (typeof API_KEY !== 'undefined' ? API_KEY : null)
-      || localStorage.getItem('kh_tmdb_key') || '';
-}
+// API_KEY dibaca dari scope global blob page (diset oleh Core)
+// Tidak perlu redefinisi di sini karena plugin dieksekusi di scope window yang sama
 
-var TMDB_BASE = 'https://api.themoviedb.org/3';
+// ── _dbg passthrough ─────────────────────────────────────────
+var _dbg = (typeof window._dbg !== 'undefined') ? window._dbg : {
+  log: function(msg, t) { console.log('[Cine]', msg); },
+  url: function(u) {}, stat: function(k, v) {}
+};
 
-// ── cineUrl: bangun URL embed per sumber ─────────────────────────────────
-function cineUrl(tmdbId, type, season, episode, sourceKey) {
-  var s = season, e = episode || 1;
-  switch (sourceKey) {
-    case '2embed':
-      return s ? 'https://www.2embed.cc/embedtv/'+tmdbId+'&s='+s+'&e='+e : 'https://www.2embed.cc/embed/'+tmdbId;
-    case 'vidlink':
-      return s ? 'https://vidlink.pro/tv/'+tmdbId+'/'+s+'/'+e : 'https://vidlink.pro/movie/'+tmdbId;
-    case 'vidzee':
-      return s ? 'https://player.vidzee.wtf/tv/'+tmdbId+'/'+s+'/'+e : 'https://player.vidzee.wtf/movie/'+tmdbId;
-    default:
-      return s ? 'https://multiembed.mov/?video_id='+tmdbId+'&tmdb=1&s='+s+'&e='+e : 'https://multiembed.mov/?video_id='+tmdbId+'&tmdb=1';
-  }
-}
-
-// ── Entry points yang dipanggil oleh Core via _cineGoTo / _cineWatch ─────
+// ── Entry points untuk Core ───────────────────────────────────
 window._cineGoTo = function(tmdbId, type, season, episode, sourceKey) {
   window.open(cineUrl(tmdbId, type, season, episode, sourceKey || 'superembed'), '_blank');
 };
@@ -126,24 +84,6 @@ window._cineWatch = function(tmdbId, type, imdbId) {
   } else {
     loadCineEpisodes(tmdbId, type, imdbId || null);
   }
-};
-
-// ── pFetch / pJSON helpers ───────────────────────────────────────────────
-async function pFetch(url, opts) {
-  opts = opts || {};
-  var r = await launcherFetch(url, opts.params, opts.headers, opts.method, opts.body, opts.bodyType);
-  return r.body;
-}
-async function pJSON(url, opts) {
-  var t = await pFetch(url, opts);
-  return JSON.parse(t);
-}
-
-// ── _dbg passthrough (gunakan _dbg core jika tersedia) ───────────────────
-var _dbg = (typeof window._dbg !== 'undefined') ? window._dbg : {
-  log: function(msg, type) { console.log('[Cine]', msg); },
-  url: function(u) {},
-  stat: function(k, v) {}
 };
 
 // \u2500\u2500 CINESTREAM MULTI-SOURCE v9 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
