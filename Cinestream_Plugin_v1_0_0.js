@@ -586,28 +586,27 @@ async function showCineStreams(tmdbId, type, season, episode, imdbId) {
   // ── Blob URL cache ──────────────────────────────────────────────────
   var _cspBlobUrls = [];
   function _cspRevoke() {
-    _cspBlobUrls.forEach(function(u) { try { URL.revokeObjectURL(u); } catch(e) {} });
+    _cspBlobUrls.forEach(function(u){ try{ URL.revokeObjectURL(u); }catch(e){} });
     _cspBlobUrls = [];
   }
   function _cspMakeBlob(text, mime) {
-    var u = URL.createObjectURL(new Blob([text], { type: mime || 'text/plain' }));
+    var u = URL.createObjectURL(new Blob([text], {type: mime||'text/plain'}));
     _cspBlobUrls.push(u);
     return u;
   }
 
-  // Resolve URL relatif terhadap base URL playlist
+  // Resolve URL relatif ke base
   function _cspResolve(base, rel) {
     if (!rel) return base;
     if (/^https?:\/\//.test(rel)) return rel;
     if (rel.indexOf('//') === 0) return base.split(':')[0] + ':' + rel;
-    if (rel.indexOf('/') === 0) { var m = base.match(/^(https?:\/\/[^/]+)/); return m ? m[1] + rel : rel; }
+    if (rel.indexOf('/') === 0) { var m = base.match(/^(https?:\/\/[^/]+)/); return m ? m[1]+rel : rel; }
     return base.replace(/\/[^/]*$/, '/') + rel;
   }
 
-  // Apakah playlist ini master (multi-bitrate)?
   function _cspIsMaster(text) { return text.indexOf('#EXT-X-STREAM-INF') >= 0; }
 
-  // Fetch teks via GM proxy (bypass CORS sepenuhnya)
+  // Fetch teks via GM proxy — melewati CORS
   async function _cspFetch(url, referer) {
     var hdrs = {};
     if (referer) {
@@ -618,16 +617,13 @@ async function showCineStreams(tmdbId, type, season, episode, imdbId) {
     return { text: res.body || '', finalUrl: res.finalUrl || url };
   }
 
-  // Fetch + parse + rewrite playlist menjadi blob URL lokal
-  // Semua URL segment di-resolve menjadi absolute, lalu diproxy via
-  // custom hls.js loader yang menggunakan postMessage → launcher → GM_xmlhttpRequest
+  // Proxy m3u8: fetch via GM, resolve semua URL ke absolute, return blob URL playlist
   async function _cspProxyM3u8(origUrl, referer) {
-    // 1. Fetch master/media playlist
     var r1 = await _cspFetch(origUrl, referer);
     var text = r1.text;
     var base = r1.finalUrl;
 
-    // 2. Jika master, pilih stream bandwidth tertinggi
+    // Jika master playlist, pilih bandwidth tertinggi
     if (_cspIsMaster(text)) {
       var lines = text.split('\n');
       var bestBw = -1, bestUrl = null;
@@ -648,157 +644,101 @@ async function showCineStreams(tmdbId, type, season, episode, imdbId) {
       }
     }
 
-    // 3. Rewrite semua URL segment & URI ke absolute
-    var outLines = text.split('\n').map(function(line) {
+    // Rewrite semua URL ke absolute
+    var out = text.split('\n').map(function(line) {
       var t = line.trim();
       if (!t) return '';
       if (t.indexOf('#') === 0) {
-        // Rewrite URI="..." di tag seperti #EXT-X-KEY
         return t.replace(/URI="([^"]+)"/g, function(_, uri) {
           return 'URI="' + _cspResolve(base, uri) + '"';
         });
       }
-      // Baris URL segment
       return _cspResolve(base, t);
     });
 
-    return _cspMakeBlob(outLines.join('\n'), 'application/vnd.apple.mpegurl');
+    return _cspMakeBlob(out.join('\n'), 'application/vnd.apple.mpegurl');
   }
 
-  // Custom hls.js pLoader: intercept SEMUA request segment/playlist
-  // → kirim ke parent Explorer via postMessage → Explorer forward ke launcher
-  // → GM_xmlhttpRequest → response kembali → loader selesai
-  // Ini menghilangkan CORS karena tidak ada request browser langsung ke CDN
-  var _segMap = {}, _segId = 0;
-  // Listener untuk response dari Explorer (seg_res)
-  window.addEventListener('message', function(e) {
-    if (!e.data || e.data.type !== 'seg_res') return;
-    var cb = _segMap[e.data.id];
-    if (!cb) return;
-    delete _segMap[e.data.id];
-    cb(e.data);
-  });
+  // Buat HTML player sederhana — hls.js load blob m3u8 secara langsung
+  // Segment di-fetch hls.js dari URL absolute (bukan custom loader)
+  // Untuk CDN yang strict CORS, user bisa pakai tombol ↗ Buka
+  function _buildPlayer(playlistBlobUrl, isM3u8) {
+    // Gunakan JSON.stringify untuk escape URL — 100% aman untuk semua karakter
+    var uJson = JSON.stringify(playlistBlobUrl);
 
-  // Buat blob URL HTML player lengkap
-  function _buildPlayer(playlistBlobUrl, referer) {
-    var u = playlistBlobUrl.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
-    var ref = (referer||'').replace(/\\/g,'\\\\').replace(/"/g,'\\"');
-
-    // Kode custom loader yang akan berjalan di dalam iframe blob
-    // Loader ini kirim postMessage ke parent untuk setiap segment
-    var loaderJs = [
-      'var _sl={},_si=0;',
-      'window.addEventListener("message",function(e){',
-      '  if(!e.data||e.data.type!=="seg_res")return;',
-      '  var c=_sl[e.data.id];if(!c)return;delete _sl[e.data.id];c(e.data);',
-      '});',
-      'function CineLoader(){}',
-      'CineLoader.prototype={',
-      '  destroy:function(){this._ab=true;},',
-      '  abort:function(){this._ab=true;},',
-      '  load:function(ctx,cfg,cbs){',
-      '    var self=this,url=ctx.url;',
-      '    // blob URL: fetch langsung tanpa proxy',
-      '    if(url.indexOf("blob:")===0){',
-      '      var x=new XMLHttpRequest();',
-      '      x.open("GET",url,true);',
-      '      if(ctx.responseType)x.responseType=ctx.responseType;',
-      '      x.onload=function(){',
-      '        if(self._ab)return;',
-      '        var d=ctx.responseType==="arraybuffer"?{data:x.response}:{data:x.responseText};',
-      '        cbs.onSuccess(d,{url:url},{});',
-      '      };',
-      '      x.onerror=function(){cbs.onError({code:x.status,text:"xhr err"},{},{});};',
-      '      x.send();return;',
-      '    }',
-      '    // URL eksternal: kirim ke parent via postMessage',
-      '    var id="s"+(++_si);',
-      '    _sl[id]=function(d){',
-      '      if(self._ab)return;',
-      '      if(d.error){cbs.onError({code:0,text:d.error},{},{});return;}',
-      '      try{',
-      '        if(ctx.responseType==="arraybuffer"){',
-      '          var b=atob(d.b64);',
-      '          var buf=new Uint8Array(b.length);',
-      '          for(var i=0;i<b.length;i++)buf[i]=b.charCodeAt(i);',
-      '          cbs.onSuccess({data:buf.buffer},{url:url},{});',
-      '        }else{',
-      '          cbs.onSuccess({data:d.body||""},{url:url},{});',
-      '        }',
-      '      }catch(ex){cbs.onError({code:0,text:ex.message},{},{});}',
-      '    };',
-      '    parent.postMessage({type:"seg_req",id:id,url:url,referer:"' + ref + '",binary:ctx.responseType==="arraybuffer"},"*");',
-      '    setTimeout(function(){if(_sl[id]){delete _sl[id];cbs.onError({code:0,text:"timeout"},{},{});}},20000);',
-      '  }',
-      '};',
+    var html = [
+      '<!DOCTYPE html>',
+      '<html><head><meta charset="UTF-8">',
+      // Referrer-Policy: no-referrer agar browser tidak kirim Referer yang salah
+      // Beberapa CDN lebih suka tidak ada Referer daripada Referer yang salah
+      '<meta name="referrer" content="no-referrer">',
+      '<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13"><' + '/script>',
+      '<style>',
+      '*{margin:0;padding:0;box-sizing:border-box}',
+      'body{background:#000;overflow:hidden}',
+      'video{width:100vw;height:100vh;object-fit:contain;display:block}',
+      '#err{display:none;position:fixed;inset:0;background:#0a0a0a;',
+      'align-items:center;justify-content:center;flex-direction:column;',
+      'font-family:sans-serif;color:#e94560;text-align:center;padding:20px;gap:10px}',
+      '#err.on{display:flex}',
+      '#err h3{font-size:15px;margin:0}',
+      '#err p{font-size:12px;color:#6b6880;margin:0}',
+      '</style>',
+      '</head><body>',
+      '<video id="v" controls autoplay playsinline></video>',
+      '<div id="err">',
+      '<h3>\u26A0 Stream Gagal Diputar</h3>',
+      '<span id="em" style="font-size:13px"></span>',
+      '<p>CDN ini memerlukan autentikasi khusus.<br>Gunakan tombol \u2197 Buka untuk mencoba di tab baru.</p>',
+      '</div>',
+      '<script>',
+      '(function(){',
+      'var v=document.getElementById("v");',
+      'var err=document.getElementById("err");',
+      'var em=document.getElementById("em");',
+      'function showErr(msg){v.style.display="none";err.className="on";em.textContent=msg||"";}',
+      'var u=' + uJson + ';',
+      'if(!u){showErr("URL tidak tersedia");return;}',
+      isM3u8 ? [
+        'if(typeof Hls!=="undefined"&&Hls.isSupported()){',
+        '  var h=new Hls({',
+        '    maxBufferLength:30,',
+        '    maxMaxBufferLength:60,',
+        '    fragLoadingMaxRetry:2,',
+        '    manifestLoadingMaxRetry:2',
+        '  });',
+        '  h.loadSource(u);',
+        '  h.attachMedia(v);',
+        '  h.on(Hls.Events.MANIFEST_PARSED,function(){',
+        '    v.play().catch(function(){});',
+        '  });',
+        '  h.on(Hls.Events.ERROR,function(ev,d){',
+        '    if(!d.fatal)return;',
+        '    if(d.type===Hls.ErrorTypes.MEDIA_ERROR){',
+        '      h.recoverMediaError();',
+        '    }else{',
+        '      showErr(d.details||"fatal error");',
+        '    }',
+        '  });',
+        '}else if(v.canPlayType("application/vnd.apple.mpegurl")){',
+        '  v.src=u;',
+        '  v.addEventListener("error",function(){showErr("Native HLS error");});',
+        '}else{',
+        '  showErr("Browser tidak mendukung HLS");',
+        '}'
+      ].join('') : [
+        'v.src=u;',
+        'v.addEventListener("error",function(){',
+        '  showErr("Error "+(v.error?v.error.code:"unknown"));',
+        '});'
+      ].join(''),
+      '})();',
+      '<' + '/script>',
+      '</body></html>'
     ].join('');
 
-    var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
-      '<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13"><\/' + 'script>' +
-      '<style>*{margin:0;padding:0;background:#000}' +
-      'video{width:100vw;height:100vh;object-fit:contain}' +
-      '#err{display:none;position:fixed;inset:0;flex-direction:column;align-items:center;justify-content:center;' +
-      'background:#0a0a0a;color:#e94560;font-family:sans-serif;font-size:13px;text-align:center;padding:20px;gap:8px}' +
-      '#err b{font-size:15px}#err small{color:#6b6880;font-size:11px}' +
-      '</style></head><body>' +
-      '<video id="v" controls autoplay playsinline></video>' +
-      '<div id="err"><b>\u26A0 Stream Tidak Dapat Diputar</b>' +
-      '<span id="em"></span>' +
-      '<small>Coba sumber lain atau gunakan \u2197 Buka.</small>' +
-      '</div>' +
-      '<scr' + 'ipt>' +
-      loaderJs +
-      'var v=document.getElementById("v");' +
-      'var eDiv=document.getElementById("err");' +
-      'var eMsg=document.getElementById("em");' +
-      'function showErr(m){v.style.display="none";eDiv.style.display="flex";eMsg.textContent=m||"";}' +
-      'var u="' + u + '";' +
-      'if(typeof Hls!=="undefined"&&Hls.isSupported()){' +
-      '  var h=new Hls({loader:CineLoader,maxBufferLength:30,maxMaxBufferLength:60});' +
-      '  h.loadSource(u);h.attachMedia(v);' +
-      '  h.on(Hls.Events.MANIFEST_PARSED,function(){v.play().catch(function(){});});' +
-      '  h.on(Hls.Events.ERROR,function(ev,d){' +
-      '    if(d.fatal){' +
-      '      if(d.type===Hls.ErrorTypes.MEDIA_ERROR){h.recoverMediaError();}' +
-      '      else{showErr(d.details||"fatal error");}' +
-      '    }' +
-      '  });' +
-      '}else if(v.canPlayType("application/vnd.apple.mpegurl")){' +
-      '  v.src=u;v.onerror=function(){showErr("HLS native error.");};' +
-      '}else{showErr("Browser tidak mendukung HLS.");}' +
-      '<\/' + 'script></body></html>';
-
-    var bUrl = URL.createObjectURL(new Blob([html],{type:'text/html'}));
-    _cspBlobUrls.push(bUrl);
-    return bUrl;
+    return _cspMakeBlob(html, 'text/html');
   }
-
-  // Listener di Explorer: terima seg_req dari iframe, forward ke launcher
-  window.addEventListener('message', function(e) {
-    if (!e.data || e.data.type !== 'seg_req') return;
-    var d = e.data;
-    var hdrs = {};
-    if (d.referer) { try { hdrs['Referer'] = d.referer; hdrs['Origin'] = new URL(d.referer).origin; } catch(ex) {} }
-    var segPromise = launcherFetch(d.url, null, hdrs, 'GET', null, null);
-    segPromise.then(function(res) {
-      var payload = { type: 'seg_res', id: d.id, body: res.body || '' };
-      if (d.binary) {
-        // Encode binary response ke base64 untuk transfer via postMessage
-        try {
-          var raw = res.body || '';
-          // body dari GM_xmlhttpRequest bisa jadi binary string
-          var b64 = btoa(unescape(encodeURIComponent(raw)));
-          payload.b64 = b64;
-        } catch(ex) {
-          // Jika encode gagal (binary tidak valid UTF), kirim body saja
-          payload.b64 = btoa(res.body || '');
-        }
-      }
-      e.source.postMessage(payload, '*');
-    }).catch(function(err) {
-      e.source.postMessage({ type: 'seg_res', id: d.id, error: err.message }, '*');
-    });
-  });
 
   async function makeCspBlob(source) {
     _cspRevoke();
@@ -808,35 +748,36 @@ async function showCineStreams(tmdbId, type, season, episode, imdbId) {
 
     if (isM3u8) {
       try {
-        var proxyBlobUrl = await _cspProxyM3u8(url, referer);
-        return _buildPlayer(proxyBlobUrl, referer);
+        var proxyBlob = await _cspProxyM3u8(url, referer);
+        return _buildPlayer(proxyBlob, true);
       } catch(err) {
-        // Jika proxy fetch gagal, fallback ke direct URL
-        var directBlobUrl = _cspMakeBlob(url, 'application/vnd.apple.mpegurl');
-        return _buildPlayer(directBlobUrl, referer);
+        // Proxy gagal: buat playlist blob langsung dari URL asli
+        var directBlob = _cspMakeBlob(
+          '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=0\n' + url,
+          'application/vnd.apple.mpegurl'
+        );
+        return _buildPlayer(directBlob, true);
       }
     } else {
-      // MP4/video: langsung pakai URL asli (MP4 biasanya lebih toleran CORS)
-      return _buildPlayer(url, referer);
+      return _buildPlayer(url, false);
     }
   }
 
   function playCsp(source) {
-    var pw = panel.querySelector('#csp-player');
+    var pw  = panel.querySelector('#csp-player');
     var load = panel.querySelector('#csp-load');
     var iframe = panel.querySelector('#csp-iframe');
     pw.style.display = 'block';
     load.style.display = 'flex';
     iframe.style.opacity = '0';
     pw.scrollIntoView({ behavior:'smooth', block:'nearest' });
-
-    // makeCspBlob async: fetch proxy dulu sebelum set iframe.src
     makeCspBlob(source).then(function(blobUrl) {
       iframe.src = blobUrl;
       iframe.onload = function(){ load.style.display='none'; iframe.style.opacity='1'; };
     }).catch(function(err) {
       load.style.display = 'none';
-      pw.innerHTML = '<div style="padding:20px;color:#e94560;font-size:13px;text-align:center">\u26A0 Gagal membuat player: ' + esc(err.message) + '</div>';
+      pw.innerHTML = '<div style="padding:20px;color:#e94560;font-size:13px;text-align:center">' +
+        '\u26A0 Gagal membuat player: ' + esc(err.message) + '</div>';
     });
   }
   function addSrc(streams) {
