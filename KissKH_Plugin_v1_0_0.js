@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KissKH Plugin
 // @namespace    https://kisskh.co/
-// @version      2.0.0
+// @version      2.0.1
 // @description  Plugin KissKH untuk Drama Explorer — search, badge, episode player, stream langsung, subtitle decrypt
 // @author       UserScript
 // ==/UserScript==
@@ -52,11 +52,10 @@ const PLUGIN_ID = 'kisskh';
 
 // ── Constants ─────────────────────────────────────────────────────────────
 const KK_BASE   = 'https://kisskh.co';
-const KK_OVH    = 'https://kisskh.ovh';
 const KK_SEARCH = KK_BASE + '/api/DramaList/Search?q=';
-const KK_DRAMA  = KK_OVH  + '/api/DramaList/Drama/';
-const KK_EPSRC  = KK_OVH  + '/api/DramaList/Episode/';
-const KK_SUB    = KK_OVH  + '/api/Sub/';
+const KK_DRAMA  = KK_BASE + '/api/DramaList/Drama/';
+const KK_EPSRC  = KK_BASE + '/api/DramaList/Episode/';
+const KK_SUB    = KK_BASE + '/api/Sub/';
 
 // ── AES-CBC Subtitle Decryptor (dari SubDecryptor.kt) ─────────────────────
 // Tiga pasang Key/IV persis seperti di SubDecryptor.kt
@@ -186,16 +185,39 @@ async function _getKkey(epsId) {
 async function _fetchSources(epsId, kkItem) {
   const kkey    = await _getKkey(epsId);
   const referer = kkPageUrl(kkItem, epsId);
-  const url     = KK_EPSRC + epsId + '.png?err=false&ts=&time=&kkey=' + kkey;
-  const { body } = await API.launcherFetch(url, null, {
-    'Referer': referer,
-    'Origin':  KK_OVH
-  }, 'GET');
-  const d = JSON.parse(body);
-  return {
-    video:      d.Video      || d.video      || null,
-    thirdParty: d.ThirdParty || d.thirdParty || null
-  };
+
+  // Coba dua variasi URL endpoint (dengan dan tanpa .png)
+  const urls = [
+    KK_EPSRC + epsId + '.png?err=false&ts=&time=&kkey=' + kkey,
+    KK_EPSRC + epsId + '?err=false&ts=&time=&kkey=' + kkey
+  ];
+
+  let lastErr = null;
+  for (const url of urls) {
+    try {
+      API.dbg.log('[KissKH] Fetch source: ' + url.replace(/kkey=[^&]*/,'kkey=***'), 'info');
+      const res = await API.launcherFetch(url, null, {
+        'Referer': referer,
+        'Origin':  KK_BASE
+      }, 'GET');
+      const rawBody = res.body || res;
+      if (!rawBody || rawBody === 'undefined' || typeof rawBody !== 'string' || rawBody.trim() === '') {
+        API.dbg.log('[KissKH] Source response kosong, status: ' + (res.status||'?'), 'warn');
+        lastErr = new Error('Response kosong (status ' + (res.status||'?') + ')');
+        continue;
+      }
+      const d = JSON.parse(rawBody);
+      API.dbg.log('[KissKH] Source OK: video=' + (d.Video||d.video||'-') + ' 3p=' + (d.ThirdParty||d.thirdParty||'-'), 'success');
+      return {
+        video:      d.Video      || d.video      || null,
+        thirdParty: d.ThirdParty || d.thirdParty || null
+      };
+    } catch(e) {
+      API.dbg.log('[KissKH] Source error: ' + e.message, 'warn');
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('Semua endpoint gagal');
 }
 
 // ── Ambil subtitle list ───────────────────────────────────────────────────
@@ -203,8 +225,10 @@ async function _fetchSubs(epsId) {
   try {
     const kkey = await _getKkey(epsId);
     const url  = KK_SUB + epsId + (kkey ? '?kkey=' + kkey : '');
-    const { body } = await API.launcherFetch(url, null, {}, 'GET');
-    const arr = JSON.parse(body);
+    const res  = await API.launcherFetch(url, null, {}, 'GET');
+    const rawBody = (res && res.body) ? res.body : res;
+    if (!rawBody || typeof rawBody !== 'string' || rawBody.trim() === '' || rawBody === 'undefined') return [];
+    const arr = JSON.parse(rawBody);
     return Array.isArray(arr) ? arr.filter(s => s.src && s.label) : [];
   } catch { return []; }
 }
@@ -212,7 +236,9 @@ async function _fetchSubs(epsId) {
 // ── Fetch + dekripsi konten subtitle ─────────────────────────────────────
 async function _fetchSubContent(src) {
   try {
-    const { body } = await API.launcherFetch(src, null, {}, 'GET');
+    const res = await API.launcherFetch(src, null, {}, 'GET');
+    const body = (res && res.body) ? res.body : res;
+    if (!body || typeof body !== 'string' || body === 'undefined') return null;
     // File .txt → AES decrypt (dari getVideoInterceptor KisskhProvider)
     if (src.includes('.txt')) return await _decryptSubTxt(body);
     return body; // .srt / .vtt langsung pakai
@@ -237,8 +263,10 @@ async function searchKissKH(title, tmdbYear, tmdbType) {
   }
 
   try {
-    const { body } = await API.launcherFetch(KK_SEARCH + encodeURIComponent(title) + '&type=0');
-    const d = JSON.parse(body);
+    const _sRes = await API.launcherFetch(KK_SEARCH + encodeURIComponent(title) + '&type=0');
+    const _sBody = (_sRes && _sRes.body) ? _sRes.body : _sRes;
+    if (!_sBody || typeof _sBody !== 'string' || _sBody === 'undefined') throw new Error('empty');
+    const d = JSON.parse(_sBody);
     if (Array.isArray(d)) d.forEach(addIfMatch);
   } catch {}
 
@@ -254,8 +282,9 @@ async function searchKissKH(title, tmdbYear, tmdbType) {
   const verified = [];
   await Promise.all(results.map(async item => {
     try {
-      const { body: b2 } = await API.launcherFetch(KK_DRAMA + item.id + '?id=' + item.id);
-      const detail = JSON.parse(b2);
+      const _dr2 = await API.launcherFetch(KK_DRAMA + item.id + '?id=' + item.id);
+      const _db2 = (_dr2 && _dr2.body) ? _dr2.body : _dr2;
+      const detail = JSON.parse(_db2);
       const t = (detail.type || '').toLowerCase();
       const isMovie  = ['movie','hollywood','bollywood'].includes(t);
       const isSeries = !isMovie;
@@ -300,8 +329,9 @@ async function _loadEpList(kkItem) {
   let eps = kkItem._detail ? (kkItem._detail.episodes || kkItem._detail.sub || []) : [];
   if (!eps.length) {
     try {
-      const { body } = await API.launcherFetch(KK_DRAMA + kkItem.id + '?id=' + kkItem.id);
-      const d = JSON.parse(body);
+      const _epR = await API.launcherFetch(KK_DRAMA + kkItem.id + '?id=' + kkItem.id);
+      const _epB = (_epR && _epR.body) ? _epR.body : _epR;
+      const d = JSON.parse(_epB);
       eps = d.episodes || d.sub || [];
       kkItem._detail = d;
     } catch { eps = []; }
