@@ -346,11 +346,26 @@ async function fetchXpass(tmdbId, type, season, episode) {
 }
 
 // 7. Madplay CDN + Vidflix
+// Madplay CDN URL selalu di-push tanpa verifikasi — verifikasi dulu via HEAD/pFetch
+// sebelum masuk ke daftar agar tidak muncul stream yang langsung gagal CORS/404
 async function fetchMadplay(tmdbId, type, season, episode) {
   var cdnUrl = type==='movie'
     ? MADPLAY_CDN+'/api/hls/unknown/'+tmdbId+'/master.m3u8'
     : MADPLAY_CDN+'/api/hls/unknown/'+tmdbId+'/season_'+season+'/episode_'+episode+'/master.m3u8';
-  var out = [{ name:'Madplay CDN', url:cdnUrl, type:'m3u8', referer:'' }];
+
+  var out = [];
+
+  // Verifikasi CDN URL: cek apakah dapat dijangkau (status 200/206) sebelum ditampilkan
+  try {
+    var headCheck = await pFetch(cdnUrl, { method:'GET', headers:{ 'Referer':MADPLAY_CDN+'/', 'Range':'bytes=0-0' } });
+    // Jika tidak throw (proxy berhasil fetch), URL bisa diakses
+    if (headCheck && headCheck.length > 0) {
+      out.push({ name:'Madplay CDN', url:cdnUrl, type:'m3u8', referer:MADPLAY_CDN+'/' });
+    }
+  } catch(e) {
+    // CDN URL tidak bisa diakses (404/CORS/network error) — skip
+  }
+
   try {
     var apiUrl = type==='movie'
       ? MADPLAY_SITE+'/api/movies/holly?id='+tmdbId+'&token=direct'
@@ -360,7 +375,7 @@ async function fetchMadplay(tmdbId, type, season, episode) {
       if (i.file) out.push({
         name:'Vidflix', url:i.file,
         type: i.file.indexOf('.m3u8')>=0 ? 'm3u8' : 'video',
-        referer: (i.headers && i.headers.Referer) || ''
+        referer: (i.headers && i.headers.Referer) || MADPLAY_SITE+'/'
       });
     });
   } catch(e) {}
@@ -585,14 +600,49 @@ async function showCineStreams(tmdbId, type, season, episode, imdbId) {
   }
 
   function makeCspBlob(source) {
-    var u = source.url.replace(/"/g,'&quot;');
+    // Escape URL untuk string JS di dalam HTML blob
+    var u = source.url.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
+    var referer = (source.referer || '').replace(/\\/g,'\\\\').replace(/"/g,'\\"');
+
+    // xhrSetup untuk kirim Referer header; withCredentials=false cegah CORS preflight
+    var hlsSetup = referer
+      ? 'xhrSetup:function(xhr,url){xhr.withCredentials=false;try{xhr.setRequestHeader("Referer","' + referer + '")}catch(e){}}'
+      : 'xhrSetup:function(xhr){xhr.withCredentials=false;}';
+
     var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
       '<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"><\/' + 'script>' +
-      '<style>*{margin:0;padding:0;background:#000}video{width:100vw;height:100vh;object-fit:contain}<\/style>' +
-      '</head><body><video id="v" controls autoplay></video>' +
-      '<scr' + 'ipt>var v=document.getElementById("v"),u="' + u + '";' +
-      'if(u.indexOf(".m3u8")>=0&&typeof Hls!=="undefined"&&Hls.isSupported()){var h=new Hls();h.loadSource(u);h.attachMedia(v);}' +
-      'else{v.src=u;}<\/' + 'script></body></html>';
+      '<style>*{margin:0;padding:0;background:#000}video{width:100vw;height:100vh;object-fit:contain}' +
+      '#err{display:none;position:fixed;inset:0;align-items:center;justify-content:center;flex-direction:column;' +
+      'background:#0a0a0a;color:#e94560;font-family:sans-serif;font-size:13px;text-align:center;padding:20px;gap:10px}' +
+      '#err b{font-size:15px}<\/style>' +
+      '</head><body>' +
+      '<video id="v" controls autoplay playsinline></video>' +
+      '<div id="err"><b>\u26A0 Stream Tidak Dapat Diputar</b>' +
+      '<span id="errmsg"></span>' +
+      '<span style="color:#6b6880;font-size:11px">Stream ini memerlukan Referer/Cookie khusus. Gunakan tombol \u2197 Buka di tab baru.</span>' +
+      '</div>' +
+      '<scr' + 'ipt>' +
+      'var v=document.getElementById("v");' +
+      'var errDiv=document.getElementById("err");' +
+      'var errMsg=document.getElementById("errmsg");' +
+      'var u="' + u + '";' +
+      'function showErr(msg){v.style.display="none";errDiv.style.display="flex";errMsg.textContent=msg||"";}' +
+      'if(u.indexOf(".m3u8")>=0&&typeof Hls!=="undefined"&&Hls.isSupported()){' +
+      '  var h=new Hls({' + hlsSetup + ',maxBufferLength:30});' +
+      '  h.loadSource(u);h.attachMedia(v);' +
+      '  h.on(Hls.Events.ERROR,function(ev,data){' +
+      '    if(data.fatal){' +
+      '      if(data.type===Hls.ErrorTypes.NETWORK_ERROR){showErr("CORS/403: "+data.details);}' +
+      '      else if(data.type===Hls.ErrorTypes.MEDIA_ERROR){h.recoverMediaError();}' +
+      '      else{showErr("Fatal: "+data.details);}' +
+      '    }' +
+      '  });' +
+      '  v.onerror=function(){showErr("Video error: "+(v.error?v.error.code:""));};' +
+      '}else{' +
+      '  v.src=u;' +
+      '  v.onerror=function(){showErr("Gagal memuat video.");};' +
+      '}' +
+      '<\/' + 'script></body></html>';
     return URL.createObjectURL(new Blob([html],{type:'text/html'}));
   }
 
