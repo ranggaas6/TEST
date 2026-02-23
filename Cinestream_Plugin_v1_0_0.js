@@ -27,13 +27,22 @@
 // ── Proxy fetch via postMessage ke Launcher ───────────────────────────
 var _cineReqMap = {};
 var _cineReqId  = 0;
-window.addEventListener('message', function(e) {
-  if (!e.data || e.data.type !== 'proxy_res') return;
-  var cb = _cineReqMap[e.data.id];
+function _cineHandleProxyRes(data) {
+  if (!data || data.type !== 'proxy_res') return;
+  var cb = _cineReqMap[data.id];
   if (!cb) return;
-  delete _cineReqMap[e.data.id];
-  cb(e.data);
+  delete _cineReqMap[data.id];
+  cb(data);
+}
+window.addEventListener('message', function(e) {
+  _cineHandleProxyRes(e.data);
 });
+// Listen juga dari BroadcastChannel
+if (typeof window._khBlobChannel !== 'undefined') {
+  window._khBlobChannel.addEventListener('message', function(e) {
+    _cineHandleProxyRes(e.data);
+  });
+}
 function launcherFetch(url, params, headers, method, body, bodyType) {
   return new Promise(function(resolve, reject) {
     var id = 'cine_' + (++_cineReqId);
@@ -41,7 +50,7 @@ function launcherFetch(url, params, headers, method, body, bodyType) {
       if (data.error) reject(new Error(data.error));
       else resolve(data);
     };
-    (window.opener || window.parent || window).postMessage({
+    (window._khBlobChannel || { postMessage: function(){} }).postMessage({
       type: 'proxy_req', id: id,
       url: url, params: params || null,
       headers: headers || null,
@@ -588,24 +597,41 @@ async function showCineStreams(tmdbId, type, season, episode, imdbId) {
   }
 
   var isMovie = type === 'movie';
+  // Debug: tampilkan status fetch di UI
+  var _fetchLog = [];
+  function _wrapFetch(label, promise) {
+    return promise.then(function(r) {
+      _fetchLog.push(label + ': ' + (r && r.length ? r.length + ' hasil' : 'kosong'));
+      return r;
+    }).catch(function(err) {
+      _fetchLog.push(label + ': ERROR - ' + err.message);
+      return [];
+    });
+  }
   await Promise.all([
-    fetchVidSrc(tmdbId, type, season, episode).then(addSrc).catch(function(){}),
-    fetchVidzee(tmdbId, type, season, episode).then(addSrc).catch(function(){}),
-    fetchVidLink(tmdbId, type, season, episode).then(addSrc).catch(function(){}),
-    fetchHexa(tmdbId, type, season, episode).then(addSrc).catch(function(){}),
-    fetchMapple(tmdbId, type, season, episode).then(addSrc).catch(function(){}),
-    fetchXpass(tmdbId, type, season, episode).then(addSrc).catch(function(){}),
-    fetchMadplay(tmdbId, type, season, episode).then(addSrc).catch(function(){}),
-    fetchSuperEmbed(tmdbId, type, season, episode).then(addSrc).catch(function(){}),
-    fetch2Embed(tmdbId, type, season, episode).then(addSrc).catch(function(){}),
-    imdbId ? fetchPrimeSrc(imdbId, type, season, episode).then(addSrc).catch(function(){}) : Promise.resolve(),
-    imdbId ? fetchCineCity(imdbId, type, season, episode).then(addSrc).catch(function(){}) : Promise.resolve(),
-    imdbId ? fetchWyzieSubs(imdbId, season, episode).then(addSubs).catch(function(){}) : Promise.resolve(),
-    imdbId ? fetchOpenSubs(imdbId, season, episode).then(addSubs).catch(function(){}) : Promise.resolve(),
+    _wrapFetch('VidSrc', fetchVidSrc(tmdbId, type, season, episode)).then(addSrc),
+    _wrapFetch('Vidzee', fetchVidzee(tmdbId, type, season, episode)).then(addSrc),
+    _wrapFetch('VidLink', fetchVidLink(tmdbId, type, season, episode)).then(addSrc),
+    _wrapFetch('Hexa', fetchHexa(tmdbId, type, season, episode)).then(addSrc),
+    _wrapFetch('Mapple', fetchMapple(tmdbId, type, season, episode)).then(addSrc),
+    _wrapFetch('Xpass', fetchXpass(tmdbId, type, season, episode)).then(addSrc),
+    _wrapFetch('Madplay', fetchMadplay(tmdbId, type, season, episode)).then(addSrc),
+    _wrapFetch('SuperEmbed', fetchSuperEmbed(tmdbId, type, season, episode)).then(addSrc),
+    _wrapFetch('2Embed', fetch2Embed(tmdbId, type, season, episode)).then(addSrc),
+    imdbId ? _wrapFetch('PrimeSrc', fetchPrimeSrc(imdbId, type, season, episode)).then(addSrc) : Promise.resolve(),
+    imdbId ? _wrapFetch('CineCity', fetchCineCity(imdbId, type, season, episode)).then(addSrc) : Promise.resolve(),
+    imdbId ? _wrapFetch('WyzieSubs', fetchWyzieSubs(imdbId, season, episode)).then(addSubs) : Promise.resolve(),
+    imdbId ? _wrapFetch('OpenSubs', fetchOpenSubs(imdbId, season, episode)).then(addSubs) : Promise.resolve(),
   ]);
 
+  // Tampilkan debug log di UI
+  var logDiv = document.createElement('div');
+  logDiv.style.cssText = 'margin-top:10px;padding:8px 12px;background:#0f172a;border-radius:6px;font-size:10px;color:#94a3b8;font-family:monospace;line-height:1.6';
+  logDiv.innerHTML = '<div style="color:#0ea5e9;font-weight:700;margin-bottom:4px">DEBUG FETCH LOG</div>' +
+    _fetchLog.map(function(l) { return '<div>' + esc(l) + '</div>'; }).join('');
+  panel.appendChild(logDiv);
   if (firstSource) {
-    srcList.innerHTML = '<div style="font-size:13px;color:var(--muted);text-align:center;padding:20px 0">Tidak ada sumber stream ditemukan untuk konten ini.</div>';
+    srcList.innerHTML = '<div style="font-size:13px;color:var(--muted);text-align:center;padding:20px 0">Tidak ada sumber stream ditemukan.</div>';
   }
 }
 
@@ -620,7 +646,8 @@ async function loadCineEpisodes(tmdbId, type, imdbId) {
   if (!seasons.length) { await showCineStreams(tmdbId, type, 1, 1, imdbId); return; }
 
   var pickId = 'cine-picker-' + tmdbId;
-  if (document.getElementById(pickId)) return;
+  var oldPicker = document.getElementById(pickId);
+  if (oldPicker) oldPicker.remove();
   var picker = document.createElement('div');
   picker.id = pickId;
   picker.className = 'episodes-section';
