@@ -589,11 +589,6 @@ async function showCineStreams(tmdbId, type, season, episode, imdbId) {
     _cspBlobUrls.forEach(function(u){ try{ URL.revokeObjectURL(u); }catch(e){} });
     _cspBlobUrls = [];
   }
-  function _cspMakeBlob(text, mime) {
-    var u = URL.createObjectURL(new Blob([text], {type: mime||'text/plain'}));
-    _cspBlobUrls.push(u);
-    return u;
-  }
 
   // Resolve URL relatif ke base
   function _cspResolve(base, rel) {
@@ -617,11 +612,14 @@ async function showCineStreams(tmdbId, type, season, episode, imdbId) {
     return { text: res.body || '', finalUrl: res.finalUrl || url };
   }
 
-  // Proxy m3u8: fetch via GM, resolve semua URL ke absolute, return blob URL playlist
-  async function _cspProxyM3u8(origUrl, referer) {
+  // Fetch + rewrite m3u8 jadi teks dengan semua URL absolute
+  // Return: { playlistText, baseUrl }
+  async function _cspFetchPlaylist(origUrl, referer) {
     var r1 = await _cspFetch(origUrl, referer);
     var text = r1.text;
     var base = r1.finalUrl;
+
+    if (!text || text.length < 10) throw new Error('Playlist kosong');
 
     // Jika master playlist, pilih bandwidth tertinggi
     if (_cspIsMaster(text)) {
@@ -638,9 +636,17 @@ async function showCineStreams(tmdbId, type, season, episode, imdbId) {
           }
         }
       }
+      // Tidak ada stream ditemukan → pakai baris pertama yang bukan komentar
+      if (!bestUrl) {
+        for (var j = 0; j < lines.length; j++) {
+          var lt = lines[j].trim();
+          if (lt && lt.indexOf('#') !== 0) { bestUrl = _cspResolve(base, lt); break; }
+        }
+      }
       if (bestUrl) {
         var r2 = await _cspFetch(bestUrl, referer);
         text = r2.text; base = r2.finalUrl;
+        if (!text || text.length < 10) throw new Error('Media playlist kosong');
       }
     }
 
@@ -649,6 +655,7 @@ async function showCineStreams(tmdbId, type, season, episode, imdbId) {
       var t = line.trim();
       if (!t) return '';
       if (t.indexOf('#') === 0) {
+        // Rewrite URI="..." di tag seperti #EXT-X-KEY, #EXT-X-MAP
         return t.replace(/URI="([^"]+)"/g, function(_, uri) {
           return 'URI="' + _cspResolve(base, uri) + '"';
         });
@@ -656,58 +663,60 @@ async function showCineStreams(tmdbId, type, season, episode, imdbId) {
       return _cspResolve(base, t);
     });
 
-    return _cspMakeBlob(out.join('\n'), 'application/vnd.apple.mpegurl');
+    return { playlistText: out.join('\n'), baseUrl: base };
   }
 
-  // Buat HTML player sederhana — hls.js load blob m3u8 secara langsung
-  // Segment di-fetch hls.js dari URL absolute (bukan custom loader)
-  // Untuk CDN yang strict CORS, user bisa pakai tombol ↗ Buka
-  function _buildPlayer(playlistBlobUrl, isM3u8) {
-    // Gunakan JSON.stringify untuk escape URL — 100% aman untuk semua karakter
-    var uJson = JSON.stringify(playlistBlobUrl);
+  // Buat HTML player yang embed teks playlist m3u8 sebagai JS string
+  // KRITIS: blob URL m3u8 harus dibuat DI DALAM iframe (bukan di Explorer)
+  // karena blob URL inherit origin pembuatnya, dan iframe tidak bisa fetch
+  // blob dari origin lain.
+  function _buildPlayer(playlistText, isM3u8, fallbackUrl) {
+    // Embed teks playlist sebagai JSON string — 100% aman untuk semua karakter
+    var playlistJson = isM3u8 ? JSON.stringify(playlistText) : 'null';
+    var fallbackJson = JSON.stringify(fallbackUrl || '');
 
-    var html = [
-      '<!DOCTYPE html>',
-      '<html><head><meta charset="UTF-8">',
-      // Referrer-Policy: no-referrer agar browser tidak kirim Referer yang salah
-      // Beberapa CDN lebih suka tidak ada Referer daripada Referer yang salah
-      '<meta name="referrer" content="no-referrer">',
-      '<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13"><' + '/script>',
-      '<style>',
-      '*{margin:0;padding:0;box-sizing:border-box}',
-      'body{background:#000;overflow:hidden}',
-      'video{width:100vw;height:100vh;object-fit:contain;display:block}',
-      '#err{display:none;position:fixed;inset:0;background:#0a0a0a;',
-      'align-items:center;justify-content:center;flex-direction:column;',
-      'font-family:sans-serif;color:#e94560;text-align:center;padding:20px;gap:10px}',
-      '#err.on{display:flex}',
-      '#err h3{font-size:15px;margin:0}',
-      '#err p{font-size:12px;color:#6b6880;margin:0}',
-      '</style>',
-      '</head><body>',
-      '<video id="v" controls autoplay playsinline></video>',
-      '<div id="err">',
-      '<h3>\u26A0 Stream Gagal Diputar</h3>',
-      '<span id="em" style="font-size:13px"></span>',
-      '<p>CDN ini memerlukan autentikasi khusus.<br>Gunakan tombol \u2197 Buka untuk mencoba di tab baru.</p>',
-      '</div>',
-      '<script>',
+    var playerScript = [
       '(function(){',
       'var v=document.getElementById("v");',
       'var err=document.getElementById("err");',
       'var em=document.getElementById("em");',
-      'function showErr(msg){v.style.display="none";err.className="on";em.textContent=msg||"";}',
-      'var u=' + uJson + ';',
-      'if(!u){showErr("URL tidak tersedia");return;}',
+      'function showErr(msg){',
+      '  v.style.display="none";',
+      '  err.style.display="flex";',
+      '  em.textContent=msg||"";',
+      '}',
+
+      // Buat blob m3u8 DI DALAM iframe (origin iframe = sama dengan blob HTML)
       isM3u8 ? [
-        'if(typeof Hls!=="undefined"&&Hls.isSupported()){',
+        'var playlistText=' + playlistJson + ';',
+        'var fallback=' + fallbackJson + ';',
+        'if(!playlistText){showErr("Playlist tidak tersedia");return;}',
+
+        // Buat blob m3u8 di dalam iframe → origin sama → tidak ada CORS
+        'var m3u8Blob=new Blob([playlistText],{type:"application/vnd.apple.mpegurl"});',
+        'var m3u8Url=URL.createObjectURL(m3u8Blob);',
+
+        'function loadHls(url){',
+        '  if(typeof Hls==="undefined"){',
+        // hls.js belum load — tunggu
+        '    setTimeout(function(){loadHls(url);},100);return;',
+        '  }',
+        '  if(!Hls.isSupported()){',
+        // Coba native HLS (Safari/iOS)
+        '    if(v.canPlayType("application/vnd.apple.mpegurl")){',
+        '      v.src=url;',
+        '      v.onerror=function(){showErr("Native HLS: error "+(v.error?v.error.code:""));};',
+        '    }else{showErr("HLS tidak didukung di browser ini");}',
+        '    return;',
+        '  }',
         '  var h=new Hls({',
         '    maxBufferLength:30,',
         '    maxMaxBufferLength:60,',
-        '    fragLoadingMaxRetry:2,',
-        '    manifestLoadingMaxRetry:2',
+        '    fragLoadingMaxRetry:3,',
+        '    manifestLoadingMaxRetry:2,',
+        '    levelLoadingMaxRetry:2',
         '  });',
-        '  h.loadSource(u);',
+        '  h.loadSource(url);',
         '  h.attachMedia(v);',
         '  h.on(Hls.Events.MANIFEST_PARSED,function(){',
         '    v.play().catch(function(){});',
@@ -716,28 +725,58 @@ async function showCineStreams(tmdbId, type, season, episode, imdbId) {
         '    if(!d.fatal)return;',
         '    if(d.type===Hls.ErrorTypes.MEDIA_ERROR){',
         '      h.recoverMediaError();',
+        '    }else if(d.type===Hls.ErrorTypes.NETWORK_ERROR){',
+        // Network error: segment CDN butuh auth/CORS — tampilkan error detail
+        '      showErr("Network: "+d.details);',
         '    }else{',
         '      showErr(d.details||"fatal error");',
         '    }',
         '  });',
-        '}else if(v.canPlayType("application/vnd.apple.mpegurl")){',
-        '  v.src=u;',
-        '  v.addEventListener("error",function(){showErr("Native HLS error");});',
-        '}else{',
-        '  showErr("Browser tidak mendukung HLS");',
-        '}'
+        '}',
+        'loadHls(m3u8Url);',
       ].join('') : [
-        'v.src=u;',
-        'v.addEventListener("error",function(){',
-        '  showErr("Error "+(v.error?v.error.code:"unknown"));',
-        '});'
+        // Video biasa (MP4 dll)
+        'var fallback=' + fallbackJson + ';',
+        'v.src=fallback;',
+        'v.onerror=function(){showErr("Error "+(v.error?v.error.code:"unknown"));};',
+        'v.play().catch(function(){});',
       ].join(''),
-      '})();',
+
+      '})();'
+    ].join('');
+
+    var html = [
+      '<!DOCTYPE html>',
+      '<html><head><meta charset="UTF-8">',
+      '<meta name="referrer" content="no-referrer">',
+      // Gunakan versi specific hls.js yang stabil
+      '<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13"><' + '/script>',
+      '<style>',
+      '*{margin:0;padding:0;box-sizing:border-box}',
+      'body{background:#000;overflow:hidden}',
+      'video{width:100vw;height:100vh;object-fit:contain;display:block}',
+      '#err{display:none;position:fixed;inset:0;background:#0a0a0a;',
+      'flex-direction:column;align-items:center;justify-content:center;',
+      'font-family:sans-serif;color:#e94560;text-align:center;padding:20px;gap:8px}',
+      '#err h3{font-size:15px;margin:0}',
+      '#err p{font-size:11px;color:#6b6880;margin:0}',
+      '</style>',
+      '</head><body>',
+      '<video id="v" controls autoplay playsinline></video>',
+      '<div id="err">',
+      '<h3>\u26A0 Stream Gagal Diputar</h3>',
+      '<span id="em" style="font-size:13px;color:#fbbf24"></span>',
+      '<p>Segmen CDN mungkin memerlukan autentikasi. Coba tombol \u2197 Buka.</p>',
+      '</div>',
+      '<script>',
+      playerScript,
       '<' + '/script>',
       '</body></html>'
     ].join('');
 
-    return _cspMakeBlob(html, 'text/html');
+    var bUrl = URL.createObjectURL(new Blob([html], {type:'text/html'}));
+    _cspBlobUrls.push(bUrl);
+    return bUrl;
   }
 
   async function makeCspBlob(source) {
@@ -746,25 +785,25 @@ async function showCineStreams(tmdbId, type, season, episode, imdbId) {
     var referer = source.referer || '';
     var isM3u8 = source.type === 'm3u8' || url.indexOf('.m3u8') >= 0;
 
-    if (isM3u8) {
-      try {
-        var proxyBlob = await _cspProxyM3u8(url, referer);
-        return _buildPlayer(proxyBlob, true);
-      } catch(err) {
-        // Proxy gagal: buat playlist blob langsung dari URL asli
-        var directBlob = _cspMakeBlob(
-          '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=0\n' + url,
-          'application/vnd.apple.mpegurl'
-        );
-        return _buildPlayer(directBlob, true);
-      }
-    } else {
-      return _buildPlayer(url, false);
+    if (!isM3u8) {
+      // MP4/video: embed URL langsung (tidak perlu proxy playlist)
+      return _buildPlayer(null, false, url);
+    }
+
+    try {
+      var result = await _cspFetchPlaylist(url, referer);
+      return _buildPlayer(result.playlistText, true, url);
+    } catch(err) {
+      // Proxy gagal → fallback: embed URL asli, hls.js coba direct (mungkin kena CORS)
+      _dbg.log('[Cine] Proxy playlist gagal: ' + err.message + ' — fallback direct', 'warn');
+      // Buat minimal playlist yang point ke URL asli
+      var minPlaylist = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:BANDWIDTH=1000000\n' + url;
+      return _buildPlayer(minPlaylist, true, url);
     }
   }
 
   function playCsp(source) {
-    var pw  = panel.querySelector('#csp-player');
+    var pw   = panel.querySelector('#csp-player');
     var load = panel.querySelector('#csp-load');
     var iframe = panel.querySelector('#csp-iframe');
     pw.style.display = 'block';
@@ -777,7 +816,7 @@ async function showCineStreams(tmdbId, type, season, episode, imdbId) {
     }).catch(function(err) {
       load.style.display = 'none';
       pw.innerHTML = '<div style="padding:20px;color:#e94560;font-size:13px;text-align:center">' +
-        '\u26A0 Gagal membuat player: ' + esc(err.message) + '</div>';
+        '\u26A0 Gagal: ' + esc(err.message) + '</div>';
     });
   }
   function addSrc(streams) {
