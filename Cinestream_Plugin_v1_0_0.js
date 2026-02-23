@@ -583,6 +583,244 @@ async function showCineStreams(tmdbId, type, season, episode, imdbId) {
 
   srcList.innerHTML = '<div style="font-size:12px;color:var(--muted)">\u23f3 Mengambil semua sumber stream, harap tunggu...</div>';
 
+  // ── Blob URL cache ──────────────────────────────────────────────────
+  var _cspBlobUrls = [];
+  function _cspRevoke() {
+    _cspBlobUrls.forEach(function(u) { try { URL.revokeObjectURL(u); } catch(e) {} });
+    _cspBlobUrls = [];
+  }
+  function _cspMakeBlob(text, mime) {
+    var u = URL.createObjectURL(new Blob([text], { type: mime || 'text/plain' }));
+    _cspBlobUrls.push(u);
+    return u;
+  }
+
+  // Resolve URL relatif terhadap base URL playlist
+  function _cspResolve(base, rel) {
+    if (!rel) return base;
+    if (/^https?:\/\//.test(rel)) return rel;
+    if (rel.indexOf('//') === 0) return base.split(':')[0] + ':' + rel;
+    if (rel.indexOf('/') === 0) { var m = base.match(/^(https?:\/\/[^/]+)/); return m ? m[1] + rel : rel; }
+    return base.replace(/\/[^/]*$/, '/') + rel;
+  }
+
+  // Apakah playlist ini master (multi-bitrate)?
+  function _cspIsMaster(text) { return text.indexOf('#EXT-X-STREAM-INF') >= 0; }
+
+  // Fetch teks via GM proxy (bypass CORS sepenuhnya)
+  async function _cspFetch(url, referer) {
+    var hdrs = {};
+    if (referer) {
+      hdrs['Referer'] = referer;
+      try { hdrs['Origin'] = new URL(referer).origin; } catch(e) {}
+    }
+    var res = await launcherFetch(url, null, hdrs, 'GET', null, null);
+    return { text: res.body || '', finalUrl: res.finalUrl || url };
+  }
+
+  // Fetch + parse + rewrite playlist menjadi blob URL lokal
+  // Semua URL segment di-resolve menjadi absolute, lalu diproxy via
+  // custom hls.js loader yang menggunakan postMessage → launcher → GM_xmlhttpRequest
+  async function _cspProxyM3u8(origUrl, referer) {
+    // 1. Fetch master/media playlist
+    var r1 = await _cspFetch(origUrl, referer);
+    var text = r1.text;
+    var base = r1.finalUrl;
+
+    // 2. Jika master, pilih stream bandwidth tertinggi
+    if (_cspIsMaster(text)) {
+      var lines = text.split('\n');
+      var bestBw = -1, bestUrl = null;
+      for (var i = 0; i < lines.length; i++) {
+        var l = lines[i].trim();
+        if (l.indexOf('#EXT-X-STREAM-INF') === 0) {
+          var bwM = l.match(/BANDWIDTH=(\d+)/);
+          var bw = bwM ? parseInt(bwM[1]) : 0;
+          var next = lines[i+1] && lines[i+1].trim();
+          if (next && next.indexOf('#') !== 0 && bw > bestBw) {
+            bestBw = bw; bestUrl = _cspResolve(base, next);
+          }
+        }
+      }
+      if (bestUrl) {
+        var r2 = await _cspFetch(bestUrl, referer);
+        text = r2.text; base = r2.finalUrl;
+      }
+    }
+
+    // 3. Rewrite semua URL segment & URI ke absolute
+    var outLines = text.split('\n').map(function(line) {
+      var t = line.trim();
+      if (!t) return '';
+      if (t.indexOf('#') === 0) {
+        // Rewrite URI="..." di tag seperti #EXT-X-KEY
+        return t.replace(/URI="([^"]+)"/g, function(_, uri) {
+          return 'URI="' + _cspResolve(base, uri) + '"';
+        });
+      }
+      // Baris URL segment
+      return _cspResolve(base, t);
+    });
+
+    return _cspMakeBlob(outLines.join('\n'), 'application/vnd.apple.mpegurl');
+  }
+
+  // Custom hls.js pLoader: intercept SEMUA request segment/playlist
+  // → kirim ke parent Explorer via postMessage → Explorer forward ke launcher
+  // → GM_xmlhttpRequest → response kembali → loader selesai
+  // Ini menghilangkan CORS karena tidak ada request browser langsung ke CDN
+  var _segMap = {}, _segId = 0;
+  // Listener untuk response dari Explorer (seg_res)
+  window.addEventListener('message', function(e) {
+    if (!e.data || e.data.type !== 'seg_res') return;
+    var cb = _segMap[e.data.id];
+    if (!cb) return;
+    delete _segMap[e.data.id];
+    cb(e.data);
+  });
+
+  // Buat blob URL HTML player lengkap
+  function _buildPlayer(playlistBlobUrl, referer) {
+    var u = playlistBlobUrl.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
+    var ref = (referer||'').replace(/\\/g,'\\\\').replace(/"/g,'\\"');
+
+    // Kode custom loader yang akan berjalan di dalam iframe blob
+    // Loader ini kirim postMessage ke parent untuk setiap segment
+    var loaderJs = [
+      'var _sl={},_si=0;',
+      'window.addEventListener("message",function(e){',
+      '  if(!e.data||e.data.type!=="seg_res")return;',
+      '  var c=_sl[e.data.id];if(!c)return;delete _sl[e.data.id];c(e.data);',
+      '});',
+      'function CineLoader(){}',
+      'CineLoader.prototype={',
+      '  destroy:function(){this._ab=true;},',
+      '  abort:function(){this._ab=true;},',
+      '  load:function(ctx,cfg,cbs){',
+      '    var self=this,url=ctx.url;',
+      '    // blob URL: fetch langsung tanpa proxy',
+      '    if(url.indexOf("blob:")===0){',
+      '      var x=new XMLHttpRequest();',
+      '      x.open("GET",url,true);',
+      '      if(ctx.responseType)x.responseType=ctx.responseType;',
+      '      x.onload=function(){',
+      '        if(self._ab)return;',
+      '        var d=ctx.responseType==="arraybuffer"?{data:x.response}:{data:x.responseText};',
+      '        cbs.onSuccess(d,{url:url},{});',
+      '      };',
+      '      x.onerror=function(){cbs.onError({code:x.status,text:"xhr err"},{},{});};',
+      '      x.send();return;',
+      '    }',
+      '    // URL eksternal: kirim ke parent via postMessage',
+      '    var id="s"+(++_si);',
+      '    _sl[id]=function(d){',
+      '      if(self._ab)return;',
+      '      if(d.error){cbs.onError({code:0,text:d.error},{},{});return;}',
+      '      try{',
+      '        if(ctx.responseType==="arraybuffer"){',
+      '          var b=atob(d.b64);',
+      '          var buf=new Uint8Array(b.length);',
+      '          for(var i=0;i<b.length;i++)buf[i]=b.charCodeAt(i);',
+      '          cbs.onSuccess({data:buf.buffer},{url:url},{});',
+      '        }else{',
+      '          cbs.onSuccess({data:d.body||""},{url:url},{});',
+      '        }',
+      '      }catch(ex){cbs.onError({code:0,text:ex.message},{},{});}',
+      '    };',
+      '    parent.postMessage({type:"seg_req",id:id,url:url,referer:"' + ref + '",binary:ctx.responseType==="arraybuffer"},"*");',
+      '    setTimeout(function(){if(_sl[id]){delete _sl[id];cbs.onError({code:0,text:"timeout"},{},{});}},20000);',
+      '  }',
+      '};',
+    ].join('');
+
+    var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+      '<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13"><\/' + 'script>' +
+      '<style>*{margin:0;padding:0;background:#000}' +
+      'video{width:100vw;height:100vh;object-fit:contain}' +
+      '#err{display:none;position:fixed;inset:0;flex-direction:column;align-items:center;justify-content:center;' +
+      'background:#0a0a0a;color:#e94560;font-family:sans-serif;font-size:13px;text-align:center;padding:20px;gap:8px}' +
+      '#err b{font-size:15px}#err small{color:#6b6880;font-size:11px}' +
+      '</style></head><body>' +
+      '<video id="v" controls autoplay playsinline></video>' +
+      '<div id="err"><b>\u26A0 Stream Tidak Dapat Diputar</b>' +
+      '<span id="em"></span>' +
+      '<small>Coba sumber lain atau gunakan \u2197 Buka.</small>' +
+      '</div>' +
+      '<scr' + 'ipt>' +
+      loaderJs +
+      'var v=document.getElementById("v");' +
+      'var eDiv=document.getElementById("err");' +
+      'var eMsg=document.getElementById("em");' +
+      'function showErr(m){v.style.display="none";eDiv.style.display="flex";eMsg.textContent=m||"";}' +
+      'var u="' + u + '";' +
+      'if(typeof Hls!=="undefined"&&Hls.isSupported()){' +
+      '  var h=new Hls({loader:CineLoader,maxBufferLength:30,maxMaxBufferLength:60});' +
+      '  h.loadSource(u);h.attachMedia(v);' +
+      '  h.on(Hls.Events.MANIFEST_PARSED,function(){v.play().catch(function(){});});' +
+      '  h.on(Hls.Events.ERROR,function(ev,d){' +
+      '    if(d.fatal){' +
+      '      if(d.type===Hls.ErrorTypes.MEDIA_ERROR){h.recoverMediaError();}' +
+      '      else{showErr(d.details||"fatal error");}' +
+      '    }' +
+      '  });' +
+      '}else if(v.canPlayType("application/vnd.apple.mpegurl")){' +
+      '  v.src=u;v.onerror=function(){showErr("HLS native error.");};' +
+      '}else{showErr("Browser tidak mendukung HLS.");}' +
+      '<\/' + 'script></body></html>';
+
+    var bUrl = URL.createObjectURL(new Blob([html],{type:'text/html'}));
+    _cspBlobUrls.push(bUrl);
+    return bUrl;
+  }
+
+  // Listener di Explorer: terima seg_req dari iframe, forward ke launcher
+  window.addEventListener('message', function(e) {
+    if (!e.data || e.data.type !== 'seg_req') return;
+    var d = e.data;
+    var hdrs = {};
+    if (d.referer) { try { hdrs['Referer'] = d.referer; hdrs['Origin'] = new URL(d.referer).origin; } catch(ex) {} }
+    var segPromise = launcherFetch(d.url, null, hdrs, 'GET', null, null);
+    segPromise.then(function(res) {
+      var payload = { type: 'seg_res', id: d.id, body: res.body || '' };
+      if (d.binary) {
+        // Encode binary response ke base64 untuk transfer via postMessage
+        try {
+          var raw = res.body || '';
+          // body dari GM_xmlhttpRequest bisa jadi binary string
+          var b64 = btoa(unescape(encodeURIComponent(raw)));
+          payload.b64 = b64;
+        } catch(ex) {
+          // Jika encode gagal (binary tidak valid UTF), kirim body saja
+          payload.b64 = btoa(res.body || '');
+        }
+      }
+      e.source.postMessage(payload, '*');
+    }).catch(function(err) {
+      e.source.postMessage({ type: 'seg_res', id: d.id, error: err.message }, '*');
+    });
+  });
+
+  async function makeCspBlob(source) {
+    _cspRevoke();
+    var url = source.url;
+    var referer = source.referer || '';
+    var isM3u8 = source.type === 'm3u8' || url.indexOf('.m3u8') >= 0;
+
+    if (isM3u8) {
+      try {
+        var proxyBlobUrl = await _cspProxyM3u8(url, referer);
+        return _buildPlayer(proxyBlobUrl, referer);
+      } catch(err) {
+        // Jika proxy fetch gagal, fallback ke direct URL
+        var directBlobUrl = _cspMakeBlob(url, 'application/vnd.apple.mpegurl');
+        return _buildPlayer(directBlobUrl, referer);
+      }
+    } else {
+      // MP4/video: langsung pakai URL asli (MP4 biasanya lebih toleran CORS)
+      return _buildPlayer(url, referer);
+    }
+  }
+
   function playCsp(source) {
     var pw = panel.querySelector('#csp-player');
     var load = panel.querySelector('#csp-load');
@@ -591,61 +829,16 @@ async function showCineStreams(tmdbId, type, season, episode, imdbId) {
     load.style.display = 'flex';
     iframe.style.opacity = '0';
     pw.scrollIntoView({ behavior:'smooth', block:'nearest' });
-    if (source.type === 'm3u8' || source.type === 'video') {
-      iframe.src = makeCspBlob(source);
-    } else {
-      iframe.src = source.url;
-    }
-    iframe.onload = function(){ load.style.display='none'; iframe.style.opacity='1'; };
+
+    // makeCspBlob async: fetch proxy dulu sebelum set iframe.src
+    makeCspBlob(source).then(function(blobUrl) {
+      iframe.src = blobUrl;
+      iframe.onload = function(){ load.style.display='none'; iframe.style.opacity='1'; };
+    }).catch(function(err) {
+      load.style.display = 'none';
+      pw.innerHTML = '<div style="padding:20px;color:#e94560;font-size:13px;text-align:center">\u26A0 Gagal membuat player: ' + esc(err.message) + '</div>';
+    });
   }
-
-  function makeCspBlob(source) {
-    // Escape URL untuk string JS di dalam HTML blob
-    var u = source.url.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
-    var referer = (source.referer || '').replace(/\\/g,'\\\\').replace(/"/g,'\\"');
-
-    // xhrSetup untuk kirim Referer header; withCredentials=false cegah CORS preflight
-    var hlsSetup = referer
-      ? 'xhrSetup:function(xhr,url){xhr.withCredentials=false;try{xhr.setRequestHeader("Referer","' + referer + '")}catch(e){}}'
-      : 'xhrSetup:function(xhr){xhr.withCredentials=false;}';
-
-    var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
-      '<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"><\/' + 'script>' +
-      '<style>*{margin:0;padding:0;background:#000}video{width:100vw;height:100vh;object-fit:contain}' +
-      '#err{display:none;position:fixed;inset:0;align-items:center;justify-content:center;flex-direction:column;' +
-      'background:#0a0a0a;color:#e94560;font-family:sans-serif;font-size:13px;text-align:center;padding:20px;gap:10px}' +
-      '#err b{font-size:15px}<\/style>' +
-      '</head><body>' +
-      '<video id="v" controls autoplay playsinline></video>' +
-      '<div id="err"><b>\u26A0 Stream Tidak Dapat Diputar</b>' +
-      '<span id="errmsg"></span>' +
-      '<span style="color:#6b6880;font-size:11px">Stream ini memerlukan Referer/Cookie khusus. Gunakan tombol \u2197 Buka di tab baru.</span>' +
-      '</div>' +
-      '<scr' + 'ipt>' +
-      'var v=document.getElementById("v");' +
-      'var errDiv=document.getElementById("err");' +
-      'var errMsg=document.getElementById("errmsg");' +
-      'var u="' + u + '";' +
-      'function showErr(msg){v.style.display="none";errDiv.style.display="flex";errMsg.textContent=msg||"";}' +
-      'if(u.indexOf(".m3u8")>=0&&typeof Hls!=="undefined"&&Hls.isSupported()){' +
-      '  var h=new Hls({' + hlsSetup + ',maxBufferLength:30});' +
-      '  h.loadSource(u);h.attachMedia(v);' +
-      '  h.on(Hls.Events.ERROR,function(ev,data){' +
-      '    if(data.fatal){' +
-      '      if(data.type===Hls.ErrorTypes.NETWORK_ERROR){showErr("CORS/403: "+data.details);}' +
-      '      else if(data.type===Hls.ErrorTypes.MEDIA_ERROR){h.recoverMediaError();}' +
-      '      else{showErr("Fatal: "+data.details);}' +
-      '    }' +
-      '  });' +
-      '  v.onerror=function(){showErr("Video error: "+(v.error?v.error.code:""));};' +
-      '}else{' +
-      '  v.src=u;' +
-      '  v.onerror=function(){showErr("Gagal memuat video.");};' +
-      '}' +
-      '<\/' + 'script></body></html>';
-    return URL.createObjectURL(new Blob([html],{type:'text/html'}));
-  }
-
   function addSrc(streams) {
     if (!streams || !streams.length) return;
     if (firstSource) { srcList.innerHTML = ''; firstSource = false; }
