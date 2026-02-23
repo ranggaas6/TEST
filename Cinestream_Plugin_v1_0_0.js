@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cinestream Plugin
 // @namespace    https://kisskh.co/
-// @version      1.0.0
+// @version      1.0.1
 // @description  Plugin Cinestream untuk KissKH & HiTV Explorer. Install bersama skrip Core.
 // @author       UserScript
 // @match        https://kisskh.co/*
@@ -24,25 +24,42 @@
 (function() {
 'use strict';
 
-// ── Proxy fetch via postMessage ke Launcher ───────────────────────────
+// ── Proxy fetch via BroadcastChannel ke Launcher ─────────────────────
+// Gunakan addEventListener (bukan onmessage) agar tidak menimpa handler Core.
+// Filter hanya id dengan prefix 'cine_' milik plugin ini.
 var _cineReqMap = {};
 var _cineReqId  = 0;
+
 function _cineHandleProxyRes(data) {
   if (!data || data.type !== 'proxy_res') return;
+  if (typeof data.id !== 'string' || data.id.indexOf('cine_') !== 0) return;
   var cb = _cineReqMap[data.id];
   if (!cb) return;
   delete _cineReqMap[data.id];
   cb(data);
 }
-window.addEventListener('message', function(e) {
-  _cineHandleProxyRes(e.data);
-});
-// Listen juga dari BroadcastChannel
-if (typeof window._khBlobChannel !== 'undefined') {
+
+// BroadcastChannel sudah diinisialisasi Core sebelum plugin dimuat.
+// addEventListener aman dipakai paralel dengan onmessage Core.
+if (window._khBlobChannel) {
   window._khBlobChannel.addEventListener('message', function(e) {
     _cineHandleProxyRes(e.data);
   });
+} else {
+  // Fallback jika karena urutan timing channel belum ada
+  setTimeout(function() {
+    if (window._khBlobChannel) {
+      window._khBlobChannel.addEventListener('message', function(e) {
+        _cineHandleProxyRes(e.data);
+      });
+    }
+  }, 500);
 }
+// Fallback sekunder: window.opener path
+window.addEventListener('message', function(e) {
+  _cineHandleProxyRes(e.data);
+});
+
 function launcherFetch(url, params, headers, method, body, bodyType) {
   return new Promise(function(resolve, reject) {
     var id = 'cine_' + (++_cineReqId);
@@ -50,14 +67,21 @@ function launcherFetch(url, params, headers, method, body, bodyType) {
       if (data.error) reject(new Error(data.error));
       else resolve(data);
     };
-    (window._khBlobChannel || { postMessage: function(){} }).postMessage({
+    var ch = window._khBlobChannel;
+    if (!ch) {
+      delete _cineReqMap[id];
+      reject(new Error('[Cine] _khBlobChannel tidak tersedia'));
+      return;
+    }
+    // BroadcastChannel.postMessage TIDAK menerima argumen targetOrigin kedua
+    ch.postMessage({
       type: 'proxy_req', id: id,
       url: url, params: params || null,
       headers: headers || null,
       method: method || 'GET',
       body: body || null,
       bodyType: bodyType || null
-    }, '*');
+    });
     setTimeout(function() {
       if (_cineReqMap[id]) { delete _cineReqMap[id]; reject(new Error('timeout')); }
     }, 30000);
@@ -84,7 +108,7 @@ var _dbg = (typeof window._dbg !== 'undefined') ? window._dbg : {
   url: function(u) {}, stat: function(k, v) {}
 };
 
-// ── HTML escape helper (esc tidak tersedia dari Core di scope plugin) ──
+// ── HTML escape (tidak tersedia dari Core di scope plugin) ────────────
 function esc(s) {
   return String(s)
     .replace(/&/g, '&amp;')
@@ -710,6 +734,6 @@ async function loadCineEpisodes(tmdbId, type, imdbId) {
 }
 
 
-console.log('[Cinestream Plugin] v1.0.0 aktif');
+console.log("[Cinestream Plugin] v1.0.1 aktif");
 
 })();
