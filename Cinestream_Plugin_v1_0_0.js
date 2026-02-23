@@ -64,8 +64,10 @@ function updateCineBadge(id, available) {
   else { b.textContent = '\u2717 Cine'; b.className = 'cine-badge missing'; }
 }
 
-// API_KEY dibaca dari scope global blob page (diset oleh Core)
-// Tidak perlu redefinisi di sini karena plugin dieksekusi di scope window yang sama
+// API_KEY dan TMDB dibaca dari scope global — diset oleh Core di blob page
+// Fallback ke localStorage jika belum ada (misal saat debug)
+if (typeof API_KEY === 'undefined') var API_KEY = localStorage.getItem('kh_tmdb_key') || '';
+var TMDB = 'https://api.themoviedb.org/3';
 
 // ── _dbg passthrough ─────────────────────────────────────────
 var _dbg = (typeof window._dbg !== 'undefined') ? window._dbg : {
@@ -612,8 +614,8 @@ async function loadCineEpisodes(tmdbId, type, imdbId) {
   var extra = document.getElementById('detail-extra');
   var seasons = [];
   try {
-    var r = await fetch(TMDB+'/'+type+'/'+tmdbId+'?api_key='+API_KEY+'&language=en-US');
-    if (r.ok) { var d = await r.json(); seasons = (d.seasons||[]).filter(function(s){ return s.season_number>0; }); }
+    var d = await pJSON('https://api.themoviedb.org/3/'+type+'/'+tmdbId+'?api_key='+API_KEY+'&language=en-US');
+    if (d && d.seasons) seasons = d.seasons.filter(function(s){ return s.season_number>0; });
   } catch(e) {}
   if (!seasons.length) { await showCineStreams(tmdbId, type, 1, 1, imdbId); return; }
 
@@ -642,8 +644,8 @@ async function loadCineEpisodes(tmdbId, type, imdbId) {
       wrap.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:8px 0">Memuat episode...</div>';
       var eps = [];
       try {
-        var r2 = await fetch(TMDB+'/tv/'+tmdbId+'/season/'+sNum+'?api_key='+API_KEY);
-        if (r2.ok) { var d2=await r2.json(); eps=d2.episodes||[]; }
+        var d2 = await pJSON('https://api.themoviedb.org/3/tv/'+tmdbId+'/season/'+sNum+'?api_key='+API_KEY);
+        if (d2 && d2.episodes) eps = d2.episodes;
       } catch(e) {}
       if (!eps.length) { wrap.innerHTML='<div style="font-size:12px;color:var(--muted);padding:8px 0">Tidak ada episode ditemukan.</div>'; return; }
       wrap.innerHTML =
