@@ -120,7 +120,7 @@ async function _decryptSubTxt(raw) {
 // ── Cache ─────────────────────────────────────────────────────────────────
 const _kkCache    = new Map(); // tmdbId  → { title, list }
 const _kkEpCache  = new Map(); // kkId    → episodes[]
-const _kkKeyCache = new Map(); // epsId   → kkey
+
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function esc(s) {
@@ -148,12 +148,7 @@ function kkPageUrl(kk, epId) {
   const base = KK_BASE + '/Drama/' + encodeURIComponent(slug) + '?id=' + kk.id;
   return epId ? base + '&ep=' + epId : base;
 }
-function _detectType(url) {
-  const u = (url||'').split('?')[0].toLowerCase();
-  if (u.endsWith('.m3u8')) return 'm3u8';
-  if (u.endsWith('.mp4'))  return 'mp4';
-  return 'embed';
-}
+
 function _subLang(label) {
   const l = (label||'').toLowerCase();
   if (l.includes('indo'))    return 'id';
@@ -162,69 +157,15 @@ function _subLang(label) {
   if (l.includes('spanish')) return 'es';
   return 'und';
 }
-async function _loadHlsJs() {
-  if (window.Hls) return;
-  await new Promise(res => {
-    const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js';
-    s.onload = res; s.onerror = res;
-    document.head.appendChild(s);
-  });
-}
 
-// ── Ambil kkey (diperlukan untuk /api/DramaList/Episode/{id}.png) ─────────
-// KisskhProvider mengambil kkey dari private BuildConfig endpoint.
-// Endpoint tersebut tidak publik sehingga kita coba dengan kkey kosong dahulu.
-// Jika gagal, arahkan user ke halaman KissKH langsung.
-async function _getKkey(epsId) {
-  if (_kkKeyCache.has(epsId)) return _kkKeyCache.get(epsId);
-  return '';
-}
 
-// ── Ambil sources video episode ───────────────────────────────────────────
-async function _fetchSources(epsId, kkItem) {
-  const kkey    = await _getKkey(epsId);
-  const referer = kkPageUrl(kkItem, epsId);
 
-  // Coba dua variasi URL endpoint (dengan dan tanpa .png)
-  const urls = [
-    KK_EPSRC + epsId + '.png?err=false&ts=&time=&kkey=' + kkey,
-    KK_EPSRC + epsId + '?err=false&ts=&time=&kkey=' + kkey
-  ];
 
-  let lastErr = null;
-  for (const url of urls) {
-    try {
-      API.dbg.log('[KissKH] Fetch source: ' + url.replace(/kkey=[^&]*/,'kkey=***'), 'info');
-      const res = await API.launcherFetch(url, null, {
-        'Referer': referer,
-        'Origin':  KK_BASE
-      }, 'GET');
-      const rawBody = res.body || res;
-      if (!rawBody || rawBody === 'undefined' || typeof rawBody !== 'string' || rawBody.trim() === '') {
-        API.dbg.log('[KissKH] Source response kosong, status: ' + (res.status||'?'), 'warn');
-        lastErr = new Error('Response kosong (status ' + (res.status||'?') + ')');
-        continue;
-      }
-      const d = JSON.parse(rawBody);
-      API.dbg.log('[KissKH] Source OK: video=' + (d.Video||d.video||'-') + ' 3p=' + (d.ThirdParty||d.thirdParty||'-'), 'success');
-      return {
-        video:      d.Video      || d.video      || null,
-        thirdParty: d.ThirdParty || d.thirdParty || null
-      };
-    } catch(e) {
-      API.dbg.log('[KissKH] Source error: ' + e.message, 'warn');
-      lastErr = e;
-    }
-  }
-  throw lastErr || new Error('Semua endpoint gagal');
-}
 
 // ── Ambil subtitle list ───────────────────────────────────────────────────
 async function _fetchSubs(epsId) {
   try {
-    const kkey = await _getKkey(epsId);
-    const url  = KK_SUB + epsId + (kkey ? '?kkey=' + kkey : '');
+    const url  = KK_SUB + epsId;
     const res  = await API.launcherFetch(url, null, {}, 'GET');
     const rawBody = (res && res.body) ? res.body : res;
     if (!rawBody || typeof rawBody !== 'string' || rawBody.trim() === '' || rawBody === 'undefined') return [];
@@ -346,196 +287,82 @@ async function _renderPlayer(ep, epNum, kkItem, extra) {
   let sec = extra.querySelector('.kk-player-section');
   if (!sec) { sec = document.createElement('div'); sec.className = 'kk-player-section'; extra.appendChild(sec); }
   sec.style.display = 'block';
+
+  const epsId   = ep.id || ep.sub_id || ep.number;
+  const pageUrl = kkPageUrl(kkItem, epsId);
+
   sec.innerHTML =
     '<div class="kk-player-title">EPISODE ' + esc(String(epNum)) + '</div>' +
     '<div class="kk-player-wrap" id="kk-pwrap">' +
-      '<div class="kk-player-loading" id="kk-pload"><div class="spinner"></div><span>Mengambil sumber video...</span></div>' +
+      '<div class="kk-player-loading" id="kk-pload"><div class="spinner"></div><span>Memuat video...</span></div>' +
+      '<iframe id="kk-iframe" allowfullscreen allow="autoplay; fullscreen" style="opacity:0;transition:opacity .3s;width:100%;height:100%;border:none"></iframe>' +
     '</div>' +
-    '<div class="kk-ctrl-bar" id="kk-srcbar" style="display:none"></div>' +
     '<div class="kk-ctrl-bar" id="kk-subbar" style="display:none"></div>';
+
   sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
-  const pwrap  = sec.querySelector('#kk-pwrap');
-  const pload  = sec.querySelector('#kk-pload');
-  const srcBar = sec.querySelector('#kk-srcbar');
-  const subBar = sec.querySelector('#kk-subbar');
+  const pload   = sec.querySelector('#kk-pload');
+  const iframe  = sec.querySelector('#kk-iframe');
+  const subBar  = sec.querySelector('#kk-subbar');
 
-  const epsId = ep.id || ep.sub_id || ep.number;
-
-  // ── Ambil sources ─────────────────────────────────────────────────────
-  let sources;
-  try {
-    sources = await _fetchSources(epsId, kkItem);
-  } catch(e) {
+  // ── Muat iframe ───────────────────────────────────────────────────────
+  iframe.src = pageUrl;
+  iframe.onload = () => {
     pload.style.display = 'none';
-    pwrap.insertAdjacentHTML('afterbegin',
-      '<div class="kk-player-error">⚠ Gagal mengambil sumber video.<br>' +
-      '<small style="color:var(--muted)">' + esc(e.message||'') + '</small></div>');
-    _appendOpenTab(sec, kkItem, epsId);
-    return;
-  }
-
-  // Kumpulkan semua link yang valid
-  const links = [];
-  if (sources.video)      links.push({ label: 'KissKH',     url: sources.video,      kind: _detectType(sources.video) });
-  if (sources.thirdParty) links.push({ label: 'ThirdParty', url: sources.thirdParty, kind: _detectType(sources.thirdParty) });
-
-  if (!links.length) {
+    iframe.style.opacity = '1';
+  };
+  // Timeout fallback jika onload tidak terpanggil (cross-origin)
+  const _iframeTimeout = setTimeout(() => {
     pload.style.display = 'none';
-    pwrap.insertAdjacentHTML('afterbegin', '<div class="kk-player-error">⚠ Tidak ada sumber video tersedia.</div>');
-    _appendOpenTab(sec, kkItem, epsId);
-    return;
-  }
+    iframe.style.opacity = '1';
+  }, 4000);
+  iframe.addEventListener('load', () => clearTimeout(_iframeTimeout), { once: true });
 
-  // ── Ambil daftar subtitle ─────────────────────────────────────────────
+  // ── Tombol buka tab ───────────────────────────────────────────────────
+  _appendOpenTab(subBar, kkItem, epsId);
+
+  // ── Muat subtitle (opsional, ditampilkan sebagai link download) ───────
   const subs = await _fetchSubs(epsId);
-
-  pload.style.display = 'none';
-
-  // State
-  let vidEl       = null;
-  let blobUrl     = null;
-  let activeSrc   = 0;
-  let activeSub   = -1; // -1 = off
-
-  function _freeBlob() { if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrl = null; } }
-
-  // ── Play sumber ke-idx ────────────────────────────────────────────────
-  async function playLink(idx) {
-    _freeBlob();
-    activeSrc = idx;
-    pwrap.innerHTML = '';
-    srcBar.querySelectorAll('.kk-ctrl-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
-
-    const lnk = links[idx];
-
-    if (lnk.kind === 'embed') {
-      subBar.style.display = 'none';
-      const iframe = document.createElement('iframe');
-      iframe.allowFullscreen = true;
-      iframe.allow = 'autoplay; fullscreen';
-      iframe.src = lnk.url;
-      pwrap.appendChild(iframe);
-      return;
-    }
-
-    // <video> untuk mp4/m3u8
-    vidEl = document.createElement('video');
-    vidEl.controls = true;
-    vidEl.style.cssText = 'width:100%;height:100%;background:#000;';
-    vidEl.crossOrigin = 'anonymous';
-
-    if (lnk.kind === 'mp4') {
-      vidEl.src = lnk.url;
-    } else {
-      // m3u8 — native Safari atau hls.js
-      if (vidEl.canPlayType('application/vnd.apple.mpegurl')) {
-        vidEl.src = lnk.url;
-      } else {
-        await _loadHlsJs();
-        if (window.Hls && window.Hls.isSupported()) {
-          const hls = new window.Hls({ enableWorker: false });
-          hls.loadSource(lnk.url);
-          hls.attachMedia(vidEl);
-        } else {
-          vidEl.src = lnk.url;
-        }
-      }
-    }
-
-    pwrap.appendChild(vidEl);
-    vidEl.play().catch(() => {});
-
-    // Terapkan subtitle aktif
-    if (activeSub >= 0 && subs[activeSub]) await _applySub(vidEl, subs[activeSub]);
-    subBar.style.display = subs.length ? 'flex' : 'none';
-  }
-
-  // ── Apply subtitle ke <video> ─────────────────────────────────────────
-  async function _applySub(video, sub) {
-    // Hapus track lama
-    Array.from(video.querySelectorAll('track')).forEach(t => t.remove());
-    _freeBlob();
-
-    const raw = await _fetchSubContent(sub.src);
-    if (!raw) return;
-
-    // Konversi SRT/TXT → VTT
-    let vtt = raw;
-    if (!raw.startsWith('WEBVTT')) {
-      vtt = 'WEBVTT\n\n' + raw.replace(/\r\n/g, '\n').replace(/(\d+:\d+:\d+),(\d+)/g, '$1.$2');
-    }
-
-    const blob = new Blob([vtt], { type: 'text/vtt' });
-    blobUrl    = URL.createObjectURL(blob);
-
-    const track = document.createElement('track');
-    track.kind    = 'subtitles';
-    track.label   = sub.label;
-    track.srclang = _subLang(sub.label);
-    track.src     = blobUrl;
-    track.default = true;
-    video.appendChild(track);
-
-    // Force mode showing
-    try {
-      const tt = video.textTracks[video.textTracks.length - 1];
-      if (tt) tt.mode = 'showing';
-    } catch {}
-  }
-
-  // ── Render source bar ─────────────────────────────────────────────────
-  if (links.length > 1) {
-    srcBar.style.display = 'flex';
-    srcBar.innerHTML = '<span class="kk-ctrl-label">SUMBER:</span>';
-    links.forEach((l, i) => {
-      const btn = document.createElement('button');
-      btn.className = 'kk-ctrl-btn' + (i === 0 ? ' active' : '');
-      btn.textContent = l.label;
-      btn.addEventListener('click', () => playLink(i));
-      srcBar.appendChild(btn);
-    });
-  }
-  _appendOpenTab(srcBar, kkItem, epsId);
-
-  // ── Render subtitle bar ───────────────────────────────────────────────
   if (subs.length) {
     subBar.style.display = 'flex';
     subBar.innerHTML = '<span class="kk-ctrl-label">SUB:</span>';
+    _appendOpenTab(subBar, kkItem, epsId);
 
-    const offBtn = document.createElement('button');
-    offBtn.className = 'kk-ctrl-btn active';
-    offBtn.textContent = 'Off';
-    offBtn.addEventListener('click', () => {
-      activeSub = -1;
-      subBar.querySelectorAll('.kk-ctrl-btn').forEach(b => b.classList.remove('active','sub-active'));
-      offBtn.classList.add('active');
-      if (vidEl) {
-        Array.from(vidEl.querySelectorAll('track')).forEach(t => t.remove());
-        _freeBlob();
-        Array.from(vidEl.textTracks).forEach(t => { t.mode = 'disabled'; });
-      }
-    });
-    subBar.appendChild(offBtn);
-
-    subs.forEach((sub, i) => {
+    subs.forEach(sub => {
       const btn = document.createElement('button');
       btn.className = 'kk-ctrl-btn';
       btn.textContent = sub.label;
+      btn.title = 'Download / salin subtitle ' + sub.label;
       btn.addEventListener('click', async () => {
-        activeSub = i;
-        subBar.querySelectorAll('.kk-ctrl-btn').forEach(b => b.classList.remove('active','sub-active'));
-        btn.classList.add('sub-active');
-        if (vidEl) await _applySub(vidEl, sub);
+        btn.textContent = '⏳';
+        try {
+          const raw = await _fetchSubContent(sub.src);
+          if (!raw) throw new Error('Konten kosong');
+          let vtt = raw;
+          if (!raw.startsWith('WEBVTT')) {
+            vtt = 'WEBVTT\n\n' + raw.replace(/\r\n/g,'\n').replace(/(\d+:\d+:\d+),(\d+)/g,'$1.$2');
+          }
+          const blob = new Blob([vtt], { type: 'text/vtt' });
+          const a    = document.createElement('a');
+          a.href     = URL.createObjectURL(blob);
+          a.download = 'subtitle_ep' + esc(String(epNum)) + '_' + esc(sub.label) + '.vtt';
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+          btn.textContent = '✓ ' + sub.label;
+        } catch(e) {
+          btn.textContent = '✗ ' + sub.label;
+          API.toast('Gagal mengambil subtitle: ' + e.message, 'error');
+        }
       });
       subBar.appendChild(btn);
     });
+  } else {
+    // Tampilkan hanya tombol open-tab
+    subBar.style.display = 'flex';
+    subBar.innerHTML = '';
+    _appendOpenTab(subBar, kkItem, epsId);
   }
-
-  // ── Mulai play ────────────────────────────────────────────────────────
-  await playLink(0);
 }
-
 function _appendOpenTab(container, kkItem, epsId) {
   const a = document.createElement('a');
   a.href = kkPageUrl(kkItem, epsId);
