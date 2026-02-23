@@ -84,6 +84,16 @@ var _dbg = (typeof window._dbg !== 'undefined') ? window._dbg : {
   url: function(u) {}, stat: function(k, v) {}
 };
 
+// ── HTML escape helper (esc tidak tersedia dari Core di scope plugin) ──
+function esc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // ── Entry points untuk Core ───────────────────────────────────
 window._cineGoTo = function(tmdbId, type, season, episode, sourceKey) {
   window.open(cineUrl(tmdbId, type, season, episode, sourceKey || 'superembed'), '_blank');
