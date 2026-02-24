@@ -119,11 +119,18 @@ function kkPageUrl(kk, epId) {
   const base=KK_BASE+'/Drama/'+encodeURIComponent(slug)+'?id='+kk.id;
   return epId ? base+'&ep='+epId : base;
 }
-function _parseBody(res) {
-  if (!res) return null;
+function _parseBody(res, label) {
+  if (!res) { if(label) API.dbg.log('[KissKH] '+label+': res null','warn'); return null; }
   const b=(typeof res==='object'&&res.body!==undefined)?res.body:res;
-  if (!b||typeof b!=='string'||b.trim()===''||b==='undefined') return null;
-  if (b.trimStart().startsWith('<')) return null;
+  const status=(typeof res==='object'&&res.status)?res.status:'?';
+  if (!b||typeof b!=='string'||b.trim()===''||b==='undefined') {
+    if(label) API.dbg.log('[KissKH] '+label+': body kosong, status='+status,'warn');
+    return null;
+  }
+  if (b.trimStart().startsWith('<')) {
+    if(label) API.dbg.log('[KissKH] '+label+': HTML response (status='+status+'), bukan JSON','warn');
+    return null;
+  }
   return b;
 }
 function _subLang(label) {
@@ -151,30 +158,48 @@ async function _getKkey(epsId) {
     // Step 1: Ambil common.js (cache per-session)
     if (!_commonJsCache) {
       const htmlRes = await API.launcherFetch(KK_BASE, null, {}, 'GET');
-      const html = _parseBody(htmlRes);
-      if (!html) throw new Error('Gagal fetch halaman KissKH');
+      const html = _parseBody(htmlRes, 'fetch KissKH homepage');
+      if (!html) throw new Error('Gagal fetch halaman KissKH (status=' + ((htmlRes&&htmlRes.status)||'?') + ')');
 
-      // Cari src common*.js dari HTML
-      const m = html.match(/src="([^"]*common[^"]*\.js[^"]*)"/);
-      if (!m) throw new Error('common.js tidak ditemukan');
+      // Cari src common*.js dari HTML — coba beberapa pattern
+      const m = html.match(/src="([^"]*common[^"]*\.js[^"]*)"/)
+             || html.match(/src="([^"]*chunk-vendors[^"]*\.js[^"]*)"/)
+             || html.match(/src="([^"]*app[^"]*\.js[^"]*)"/);
+      if (!m) {
+        API.dbg.log('[KissKH] HTML snippet: ' + html.slice(0,300), 'warn');
+        throw new Error('common.js tidak ditemukan di HTML');
+      }
 
-      const jsUrl = m[1].startsWith('http') ? m[1] : KK_BASE + '/' + m[1].replace(/^\//, '');
-      API.dbg.log('[KissKH] Fetch common.js: ' + jsUrl, 'info');
+      const jsUrl = m[1].startsWith('http') ? m[1] : KK_BASE + m[1].replace(/^(?!\/)/, '/');
+      API.dbg.log('[KissKH] common.js URL: ' + jsUrl, 'info');
 
       const jsRes = await API.launcherFetch(jsUrl, null, {}, 'GET');
-      const jsCode = _parseBody(jsRes);
-      if (!jsCode) throw new Error('Gagal fetch common.js');
+      const jsCode = _parseBody(jsRes, 'fetch common.js');
+      if (!jsCode) throw new Error('Gagal fetch common.js (status=' + ((jsRes&&jsRes.status)||'?') + ')');
+      API.dbg.log('[KissKH] common.js ukuran: ' + jsCode.length + ' chars', 'info');
       _commonJsCache = jsCode;
     }
 
-    // Step 2: Eval common.js + panggil fungsi token generator
-    // Parameter: episodeId, null, version, salt, angka, 6x "kisskh"
-    const kkey = eval(
-      _commonJsCache +
-      `\n;_0x54b991(${Number(epsId)},null,"2.8.10","62f176f3bb1b5b8e70e39932ad34a0c7",4830201,"kisskh","kisskh","kisskh","kisskh","kisskh","kisskh")`
-    );
+    // Step 2: Cari nama fungsi token generator di common.js
+    // Bisa bernama _0x54b991 atau nama obfuscated lain
+    const fnMatch = _commonJsCache.match(/function (_0x[a-f0-9]+)\s*\([^)]*\)\s*\{[^}]*version/i)
+                 || _commonJsCache.match(/_0x[a-f0-9]{4,6}(?=\s*=\s*function)/);
+    const fnName = '_0x54b991'; // default known name
+    API.dbg.log('[KissKH] Mencoba fungsi: ' + fnName + ' untuk ep ' + epsId, 'info');
 
-    API.dbg.log('[KissKH] kkey untuk ep ' + epsId + ': ' + String(kkey).slice(0, 20) + '...', 'success');
+    const evalCode = _commonJsCache + '\n;(function(){try{return ' + fnName + '(' + Number(epsId) + ',null,"2.8.10","62f176f3bb1b5b8e70e39932ad34a0c7",4830201,"kisskh","kisskh","kisskh","kisskh","kisskh","kisskh");}catch(e){return "__ERR:"+e.message;}})()';
+    const kkey = eval(evalCode);
+
+    if (!kkey || String(kkey).startsWith('__ERR')) {
+      API.dbg.log('[KissKH] eval gagal: ' + kkey, 'warn');
+      // Coba tanpa parameter salt (versi lama)
+      const kkey2 = eval(_commonJsCache + '\n;(function(){try{return _0x54b991(' + Number(epsId) + ');}catch(e){return "";}})()');
+      API.dbg.log('[KissKH] kkey2 (no-param): ' + String(kkey2).slice(0,30), 'info');
+      _kkKeyCache.set(epsId, kkey2||'');
+      return kkey2||'';
+    }
+
+    API.dbg.log('[KissKH] kkey OK: ' + String(kkey).slice(0,30) + '...', 'success');
     _kkKeyCache.set(epsId, kkey);
     return kkey;
 
@@ -194,8 +219,10 @@ async function _fetchSources(epsId, kkItem) {
   API.dbg.log('[KissKH] Fetch source: ep=' + epsId + ' kkey=' + (kkey?'OK':'empty'), 'info');
 
   const res = await API.launcherFetch(url, null, { 'Referer': referer, 'Origin': KK_BASE }, 'GET');
-  const raw = _parseBody(res);
-  if (!raw) throw new Error('Response source kosong (status ' + (res&&res.status||'?') + ')');
+  const status = (res&&res.status)||'?';
+  API.dbg.log('[KissKH] _fetchSources status='+status+' body_len='+(res&&res.body?res.body.length:0), status==200||status=='200'?'info':'warn');
+  const raw = _parseBody(res, 'fetchSources');
+  if (!raw) throw new Error('Response source kosong (status='+status+', body="'+(res&&res.body?String(res.body).slice(0,80):'null')+'")');
 
   const d = JSON.parse(raw);
   API.dbg.log('[KissKH] Source: video=' + (d.Video||'-') + ' 3p=' + (d.ThirdParty||'-'), 'success');
