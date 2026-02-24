@@ -121,17 +121,27 @@ function kkPageUrl(kk, epId) {
 }
 function _parseBody(res, label) {
   if (!res) { if(label) API.dbg.log('[KissKH] '+label+': res null','warn'); return null; }
-  const b=(typeof res==='object'&&res.body!==undefined)?res.body:res;
-  const status=(typeof res==='object'&&res.status)?res.status:'?';
-  if (!b||typeof b!=='string'||b.trim()===''||b==='undefined') {
-    if(label) API.dbg.log('[KissKH] '+label+': body kosong, status='+status,'warn');
+  // window.message path resolve {body,hitvDid,finalUrl} — tidak ada status
+  const b = (typeof res==='object' && res.body !== undefined) ? res.body : res;
+  if (b === null || b === undefined || b === 'undefined') {
+    if(label) API.dbg.log('[KissKH] '+label+': body null/undefined','warn');
     return null;
   }
-  if (b.trimStart().startsWith('<')) {
-    if(label) API.dbg.log('[KissKH] '+label+': HTML response (status='+status+'), bukan JSON','warn');
+  if (typeof b !== 'string') {
+    if(label) API.dbg.log('[KissKH] '+label+': body bukan string: '+typeof b,'warn');
     return null;
   }
-  return b;
+  if (b.trim() === '') {
+    if(label) API.dbg.log('[KissKH] '+label+': body string kosong','warn');
+    return null;
+  }
+  return b; // kembalikan apa adanya — caller yang putuskan apakah HTML/JSON valid
+}
+// Cek apakah body adalah JSON valid (bukan HTML)
+function _isJson(b) {
+  if (!b) return false;
+  const t = b.trimStart();
+  return t.startsWith('{') || t.startsWith('[');
 }
 function _subLang(label) {
   const l=(label||'').toLowerCase();
@@ -163,24 +173,27 @@ async function _getKkey(epsId) {
       const _hLen = (htmlRes&&htmlRes.body!=null)?String(htmlRes.body).length:-1;
       API.dbg.log('[KissKH] homepage res keys=['+_hKeys.join(',')+'] status='+_hStatus+' body_len='+_hLen, 'info');
       const html = _parseBody(htmlRes, 'fetch KissKH homepage');
-      if (!html) throw new Error('Gagal fetch halaman KissKH (status='+_hStatus+' body_len='+_hLen+')');
+      if (!html) throw new Error('Gagal fetch halaman KissKH (body_len='+_hLen+')');
+      API.dbg.log('[KissKH] HTML snippet: '+html.slice(0,200), 'info');
 
-      // Cari src common*.js dari HTML — coba beberapa pattern
-      const m = html.match(/src="([^"]*common[^"]*\.js[^"]*)"/)
-             || html.match(/src="([^"]*chunk-vendors[^"]*\.js[^"]*)"/)
-             || html.match(/src="([^"]*app[^"]*\.js[^"]*)"/);
-      if (!m) {
-        API.dbg.log('[KissKH] HTML snippet: ' + html.slice(0,300), 'warn');
-        throw new Error('common.js tidak ditemukan di HTML');
-      }
+      // Cari semua <script src> dari HTML
+      const allScripts = [...html.matchAll(/src="([^"]*\.js[^"]*)"/g)].map(m=>m[1]);
+      API.dbg.log('[KissKH] Script tags ditemukan: '+allScripts.join(' | '), 'info');
 
-      const jsUrl = m[1].startsWith('http') ? m[1] : KK_BASE + m[1].replace(/^(?!\/)/, '/');
-      API.dbg.log('[KissKH] common.js URL: ' + jsUrl, 'info');
+      // Prioritas: common > chunk-vendors > app > script terbesar
+      const jsRelUrl = allScripts.find(s=>s.includes('common'))
+                    || allScripts.find(s=>s.includes('chunk-vendors'))
+                    || allScripts.find(s=>s.includes('app'))
+                    || allScripts[allScripts.length-1]; // ambil yang terakhir (biasanya terbesar)
+      if (!jsRelUrl) throw new Error('Tidak ada script tag di HTML KissKH');
+
+      const jsUrl = jsRelUrl.startsWith('http') ? jsRelUrl : KK_BASE + (jsRelUrl.startsWith('/') ? jsRelUrl : '/'+jsRelUrl);
+      API.dbg.log('[KissKH] Fetch JS: ' + jsUrl, 'info');
 
       const jsRes = await API.launcherFetch(jsUrl, null, {}, 'GET');
       const jsCode = _parseBody(jsRes, 'fetch common.js');
-      if (!jsCode) throw new Error('Gagal fetch common.js (status=' + ((jsRes&&jsRes.status)||'?') + ')');
-      API.dbg.log('[KissKH] common.js ukuran: ' + jsCode.length + ' chars', 'info');
+      if (!jsCode) throw new Error('Gagal fetch JS file');
+      API.dbg.log('[KissKH] JS size: ' + jsCode.length + ' chars, punya _0x54b991: ' + jsCode.includes('_0x54b991'), 'info');
       _commonJsCache = jsCode;
     }
 
@@ -223,16 +236,15 @@ async function _fetchSources(epsId, kkItem) {
   API.dbg.log('[KissKH] Fetch source: ep=' + epsId + ' kkey=' + (kkey?'OK':'empty'), 'info');
 
   const res = await API.launcherFetch(url, null, { 'Referer': referer, 'Origin': KK_BASE }, 'GET');
-  // Dump seluruh keys dari res untuk debug struktur
-  const resKeys = res ? Object.keys(res) : [];
-  const status = (res&&res.status)||'?';
   const bodyLen = (res&&res.body!=null) ? String(res.body).length : -1;
-  const bodyPrev = (res&&res.body) ? String(res.body).slice(0,120) : '(null)';
-  API.dbg.log('[KissKH] res keys: ['+resKeys.join(',')+'] status='+status+' body_len='+bodyLen, 'info');
-  API.dbg.log('[KissKH] body preview: '+bodyPrev, bodyLen>0?'info':'warn');
+  const bodyPrev = (res&&res.body) ? String(res.body).slice(0,200) : '(null/undefined)';
+  const finalUrl = (res&&res.finalUrl)||'?';
+  API.dbg.log('[KissKH] source body_len='+bodyLen+' finalUrl='+finalUrl, bodyLen>0?'info':'warn');
+  API.dbg.log('[KissKH] source body: '+bodyPrev, bodyLen>0?'info':'warn');
   const raw = _parseBody(res, 'fetchSources');
-  if (!raw) throw new Error('Response source kosong (status='+status+' body_len='+bodyLen+')');
+  if (!raw) throw new Error('Response source kosong (body_len='+bodyLen+' finalUrl='+finalUrl+')');
 
+  if (!_isJson(raw)) throw new Error('Source bukan JSON: '+raw.slice(0,80));
   const d = JSON.parse(raw);
   API.dbg.log('[KissKH] Source: video=' + (d.Video||'-') + ' 3p=' + (d.ThirdParty||'-'), 'success');
   return { video: d.Video||d.video||null, thirdParty: d.ThirdParty||d.thirdParty||null };
@@ -245,7 +257,7 @@ async function _fetchSubs(epsId) {
     const url  = KK_SUB + epsId + (kkey ? '?kkey=' + encodeURIComponent(kkey) : '');
     const res  = await API.launcherFetch(url, null, {}, 'GET');
     const raw  = _parseBody(res);
-    if (!raw) return [];
+    if (!raw||!_isJson(raw)) return [];
     const arr = JSON.parse(raw);
     return Array.isArray(arr) ? arr.filter(s => s.src && s.label) : [];
   } catch { return []; }
@@ -278,7 +290,7 @@ async function searchKissKH(title, tmdbYear, tmdbType) {
 
   try {
     const raw = _parseBody(await API.launcherFetch(KK_SEARCH + encodeURIComponent(title) + '&type=0'));
-    if (raw) { const d=JSON.parse(raw); if(Array.isArray(d)) d.forEach(addIfMatch); }
+    if (raw && _isJson(raw)) { const d=JSON.parse(raw); if(Array.isArray(d)) d.forEach(addIfMatch); }
   } catch {}
 
   results.sort((a,b) => {
@@ -292,7 +304,7 @@ async function searchKissKH(title, tmdbYear, tmdbType) {
   await Promise.all(results.map(async item => {
     try {
       const raw2=_parseBody(await API.launcherFetch(KK_DRAMA+item.id+'?id='+item.id));
-      if (!raw2) { verified.push(item); return; }
+      if (!raw2||!_isJson(raw2)) { verified.push(item); return; }
       const detail=JSON.parse(raw2);
       const t=(detail.type||'').toLowerCase();
       const isMovie=['movie','hollywood','bollywood'].includes(t);
@@ -333,7 +345,7 @@ async function _loadEpList(kkItem) {
   if (!eps.length) {
     try {
       const raw=_parseBody(await API.launcherFetch(KK_DRAMA+kkItem.id+'?id='+kkItem.id));
-      if (raw) { const d=JSON.parse(raw); eps=d.episodes||d.sub||[]; kkItem._detail=d; }
+      if (raw&&_isJson(raw)) { const d=JSON.parse(raw); eps=d.episodes||d.sub||[]; kkItem._detail=d; }
     } catch {}
   }
   _kkEpCache.set(kkItem.id,eps);
