@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KissKH Plugin
 // @namespace    https://kisskh.co/
-// @version      2.1.0
+// @version      2.1.1
 // @description  Plugin KissKH untuk Drama Explorer — kkey dari common.js, player video + subtitle
 // @author       UserScript
 // ==/UserScript==
@@ -235,7 +235,11 @@ async function _fetchSources(epsId, kkItem) {
 
   API.dbg.log('[KissKH] Fetch source: ep=' + epsId + ' kkey=' + (kkey?'OK':'empty'), 'info');
 
-  const res = await API.launcherFetch(url, null, { 'Referer': referer, 'Origin': KK_BASE }, 'GET');
+  const res = await API.launcherFetch(url, null, {
+    'Referer': referer,
+    'Origin':  KK_BASE,
+    'Accept':  'image/png, application/json, */*'
+  }, 'GET');
   const bodyLen = (res&&res.body!=null) ? String(res.body).length : -1;
   const bodyPrev = (res&&res.body) ? String(res.body).slice(0,200) : '(null/undefined)';
   const finalUrl = (res&&res.finalUrl)||'?';
@@ -608,6 +612,6 @@ API.registerAction({
   onDetail:(tmdbId,type,title,year,item,extra)=>handleKKWatch(tmdbId,type,title,year,item,extra)
 });
 
-API.dbg.log('[KissKH Plugin] v2.1.0 terdaftar', 'success');
+API.dbg.log('[KissKH Plugin] v2.1.1 terdaftar', 'success');
 
 })();
