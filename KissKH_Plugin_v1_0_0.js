@@ -158,8 +158,12 @@ async function _getKkey(epsId) {
     // Step 1: Ambil common.js (cache per-session)
     if (!_commonJsCache) {
       const htmlRes = await API.launcherFetch(KK_BASE, null, {}, 'GET');
+      const _hKeys = htmlRes ? Object.keys(htmlRes) : [];
+      const _hStatus = (htmlRes&&htmlRes.status)||'?';
+      const _hLen = (htmlRes&&htmlRes.body!=null)?String(htmlRes.body).length:-1;
+      API.dbg.log('[KissKH] homepage res keys=['+_hKeys.join(',')+'] status='+_hStatus+' body_len='+_hLen, 'info');
       const html = _parseBody(htmlRes, 'fetch KissKH homepage');
-      if (!html) throw new Error('Gagal fetch halaman KissKH (status=' + ((htmlRes&&htmlRes.status)||'?') + ')');
+      if (!html) throw new Error('Gagal fetch halaman KissKH (status='+_hStatus+' body_len='+_hLen+')');
 
       // Cari src common*.js dari HTML — coba beberapa pattern
       const m = html.match(/src="([^"]*common[^"]*\.js[^"]*)"/)
@@ -219,10 +223,15 @@ async function _fetchSources(epsId, kkItem) {
   API.dbg.log('[KissKH] Fetch source: ep=' + epsId + ' kkey=' + (kkey?'OK':'empty'), 'info');
 
   const res = await API.launcherFetch(url, null, { 'Referer': referer, 'Origin': KK_BASE }, 'GET');
+  // Dump seluruh keys dari res untuk debug struktur
+  const resKeys = res ? Object.keys(res) : [];
   const status = (res&&res.status)||'?';
-  API.dbg.log('[KissKH] _fetchSources status='+status+' body_len='+(res&&res.body?res.body.length:0), status==200||status=='200'?'info':'warn');
+  const bodyLen = (res&&res.body!=null) ? String(res.body).length : -1;
+  const bodyPrev = (res&&res.body) ? String(res.body).slice(0,120) : '(null)';
+  API.dbg.log('[KissKH] res keys: ['+resKeys.join(',')+'] status='+status+' body_len='+bodyLen, 'info');
+  API.dbg.log('[KissKH] body preview: '+bodyPrev, bodyLen>0?'info':'warn');
   const raw = _parseBody(res, 'fetchSources');
-  if (!raw) throw new Error('Response source kosong (status='+status+', body="'+(res&&res.body?String(res.body).slice(0,80):'null')+'")');
+  if (!raw) throw new Error('Response source kosong (status='+status+' body_len='+bodyLen+')');
 
   const d = JSON.parse(raw);
   API.dbg.log('[KissKH] Source: video=' + (d.Video||'-') + ' 3p=' + (d.ThirdParty||'-'), 'success');
