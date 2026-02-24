@@ -17,6 +17,7 @@ if (typeof window._pluginAPI === 'undefined') {
 const API       = window._pluginAPI;
 const PLUGIN_ID = 'kisskh';
 
+
 // ── CSS ───────────────────────────────────────────────────────────────────
 (function injectCSS() {
   const style = document.createElement('style');
@@ -430,24 +431,100 @@ async function _renderPlayer(ep, epNum, kkItem, extra) {
       return;
     }
 
+    // Tampilkan loading sementara fetch
+    pwrap.innerHTML='<div class="kk-player-loading"><div class="spinner"></div><span>Memuat stream...</span></div>';
+
     vidEl=document.createElement('video');
-    vidEl.controls=true; vidEl.crossOrigin='anonymous';
+    vidEl.controls=true;
     vidEl.style.cssText='width:100%;height:100%;background:#000;';
 
     if (lnk.kind==='mp4') {
-      vidEl.src=lnk.url;
+      // mp4: fetch via proxy → blob URL agar bypass CORS
+      try {
+        API.dbg.log('[KissKH] Fetch mp4 via proxy...', 'info');
+        const res = await API.launcherFetch(lnk.url, null, {'Referer': KK_BASE}, 'GET');
+        const body = res && res.body;
+        if (body) {
+          // body adalah string binary — convert ke blob
+          const arr = new Uint8Array(body.length);
+          for (let i=0;i<body.length;i++) arr[i]=body.charCodeAt(i);
+          blobUrl = URL.createObjectURL(new Blob([arr],{type:'video/mp4'}));
+          vidEl.src = blobUrl;
+        } else {
+          vidEl.src = lnk.url; // fallback langsung
+        }
+      } catch { vidEl.src = lnk.url; }
+
     } else {
-      if (vidEl.canPlayType('application/vnd.apple.mpegurl')) {
-        vidEl.src=lnk.url;
-      } else {
-        await _loadHlsJs();
-        if (window.Hls&&window.Hls.isSupported()) {
-          const hls=new window.Hls({enableWorker:false});
-          hls.loadSource(lnk.url); hls.attachMedia(vidEl);
-        } else { vidEl.src=lnk.url; }
+      // m3u8/HLS: fetch manifest via proxy → parse → buat custom loader
+      try {
+        API.dbg.log('[KissKH] Fetch HLS manifest via proxy...', 'info');
+        const res = await API.launcherFetch(lnk.url, null, {'Referer': KK_BASE, 'Origin': KK_BASE}, 'GET');
+        const manifest = res && res.body;
+        if (!manifest || typeof manifest !== 'string') throw new Error('manifest null');
+        API.dbg.log('[KissKH] Manifest len='+manifest.length+' preview='+manifest.slice(0,100), 'info');
+
+        // Resolve base URL untuk segment relatif
+        const baseUrl = lnk.url.substring(0, lnk.url.lastIndexOf('/')+1);
+
+        // Patch manifest: jadikan URL segment absolut
+        const patched = manifest.split('\n').map(line => {
+          const t = line.trim();
+          if (!t || t.startsWith('#')) return line;
+          if (t.startsWith('http')) return line;
+          return baseUrl + t;
+        }).join('\n');
+
+        // Buat blob manifest
+        const mBlob = new Blob([patched], {type:'application/vnd.apple.mpegurl'});
+        blobUrl = URL.createObjectURL(mBlob);
+
+        if (vidEl.canPlayType('application/vnd.apple.mpegurl')) {
+          // Safari — native HLS dari blob manifest
+          vidEl.src = blobUrl;
+        } else {
+          // Chrome/FF — hls.js dengan custom XHR loader via launcherFetch proxy
+          await _loadHlsJs();
+          if (window.Hls && window.Hls.isSupported()) {
+            // Custom loader agar segment .ts juga lewat proxy
+            class ProxyLoader extends window.Hls.DefaultConfig.loader {
+              load(ctx, config, callbacks) {
+                const url = ctx.url;
+                API.launcherFetch(url, null, {'Referer': KK_BASE, 'Origin': KK_BASE}, 'GET')
+                  .then(r => {
+                    const body = r && r.body;
+                    if (!body) { callbacks.onError({code:0,text:'empty'},ctx,null); return; }
+                    // Untuk segment .ts: body adalah binary string
+                    if (ctx.responseType === 'arraybuffer') {
+                      const arr = new Uint8Array(body.length);
+                      for (let i=0;i<body.length;i++) arr[i]=body.charCodeAt(i);
+                      callbacks.onSuccess({data:arr.buffer,url},ctx,null);
+                    } else {
+                      callbacks.onSuccess({data:body,url},ctx,null);
+                    }
+                  })
+                  .catch(e => callbacks.onError({code:0,text:e.message},ctx,null));
+              }
+              abort() {}
+              destroy() {}
+            }
+            const hls = new window.Hls({enableWorker:false, loader:ProxyLoader});
+            hls.loadSource(blobUrl);
+            hls.attachMedia(vidEl);
+            hls.on(window.Hls.Events.ERROR, (ev,data) => {
+              if (data.fatal) API.dbg.log('[KissKH] HLS error: '+data.type+' '+data.details, 'warn');
+            });
+          } else {
+            vidEl.src = blobUrl;
+          }
+        }
+      } catch(e) {
+        API.dbg.log('[KissKH] HLS fallback langsung: '+e.message, 'warn');
+        vidEl.src = lnk.url; // last resort langsung
       }
     }
 
+    pwrap.innerHTML='';
     pwrap.appendChild(vidEl);
     vidEl.play().catch(()=>{});
     if (activeSub>=0&&subs[activeSub]) await _applySub(vidEl,subs[activeSub]);
